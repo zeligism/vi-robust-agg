@@ -313,7 +313,7 @@ class ResNetDiscriminator(nn.Module):
 # Only supports 32x32 or 64x64 images
 class ConditionalResNetGAN(nn.Module):
     def __init__(self, num_latents=64,
-                 D_features=32, G_features=32,
+                 D_features=64, G_features=64,
                  image_size=32, channels=3,
                  cond_dim=0, num_classes=10,
                  use_sn=True):
@@ -366,7 +366,8 @@ def mnist32(
                 transforms.Grayscale(3),
                 transforms.Resize(32),
                 transforms.ToTensor(),
-                transforms.Normalize((0.1307,), (0.3081,)),
+                # transforms.Normalize((0.1307,), (0.3081,)),
+                transforms.Normalize((0.5,), (0.5,)),
             ]
         ),
     )

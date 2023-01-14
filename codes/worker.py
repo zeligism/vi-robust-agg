@@ -137,6 +137,46 @@ class MomentumWorker(TorchWorker):
         return torch.cat(layer_gradients)
 
 
+class AdamWorker(TorchWorker):
+    def __init__(self, betas=(0.5, 0.9), eps=1e-8, correct_bias=True, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.betas = betas
+        self.eps = eps
+        self.correct_bias = correct_bias
+
+    def _save_grad(self) -> None:
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                param_state = self.state[p]
+                if p.grad is None:
+                    # param_state["momentum_buffer"] = torch.empty_like(p)
+                    # param_state["momentumsq_buffer"] = torch.empty_like(p)
+                    continue
+                if "momentum_buffer" not in param_state:
+                    param_state["momentum_buffer"] = torch.clone(p.grad).detach()
+                    param_state["momentumsq_buffer"] = torch.clone(p.grad**2).detach()
+                    # param_state["momentumsq_buffer"] = torch.clone(param_state["momentum_buffer"]**2).detach()
+                    param_state['steps'] = 1
+                else:
+                    param_state["momentum_buffer"].mul_(self.betas[0]).add_((1 - self.betas[0]) * p.grad)
+                    param_state["momentumsq_buffer"].mul_(self.betas[1]).add_((1 - self.betas[1]) * p.grad**2)
+                    # param_state["momentumsq_buffer"].mul_(self.betas[1]).add_((1 - self.betas[1]) * param_state["momentum_buffer"]**2)
+                    param_state['steps'] += 1
+
+    def _get_saved_grad(self) -> torch.Tensor:
+        layer_gradients = []
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                param_state = self.state[p]
+                m = param_state["momentum_buffer"].data.view(-1)
+                v = param_state["momentumsq_buffer"].data.view(-1)
+                if self.correct_bias:
+                    m = m / (1 - self.betas[0] ** param_state['steps'])
+                    v = v / (1 - self.betas[1] ** param_state['steps'])
+                layer_gradients.append(m / (v**0.5 + self.eps))
+        return torch.cat(layer_gradients)
+
+
 ###############################################################################
 class GANWorker(TorchWorker):
     """
@@ -150,7 +190,6 @@ class GANWorker(TorchWorker):
                  conditional: bool = False,
                  *args, **kwargs):
         self.lr_mult = 1.0
-        self.local_steps = 0
         self.batch_size = None
         self.worker_id = worker_id
         super().__init__(*args, **kwargs)
@@ -171,7 +210,22 @@ class GANWorker(TorchWorker):
     def add_noise(tensor, std=0.02):
         return tensor + std * torch.randn_like(tensor)
 
-    def compute_gradient(self, given_state={}) -> Tuple[float, int]:
+    def get_state(self):
+        return {
+            "data": [],
+            "rng": torch.get_rng_state(),
+            "model": deepcopy(self.model.state_dict()),
+            # "D_optimizer": deepcopy(self.D_optimizer.state_dict()),
+            # "G_optimizer": deepcopy(self.G_optimizer.state_dict()),
+        }
+
+    def set_state(self, state):
+        self.model.load_state_dict(state['model'])
+        # self.D_optimizer.load_state_dict(state['D_optimizer'])
+        # self.G_optimizer.load_state_dict(state['G_optimizer'])
+        torch.set_rng_state(state['rng'])
+
+    def compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
         results = {}
 
         # cache batch size
@@ -180,36 +234,18 @@ class GANWorker(TorchWorker):
             self.batch_size = data.shape[0]
 
         # reset prev state if not given fixed state
-        self.prev_state = {
-            "data": [],
-            "rng": [],
-            "model": deepcopy(self.model.state_dict()),
-            "D_optimizer": deepcopy(self.D_optimizer.state_dict()),
-            "G_optimizer": deepcopy(self.G_optimizer.state_dict()),
-        }
-
-        if given_state:
-            self.model.load_state_dict(given_state['model'])
-            self.D_optimizer.load_state_dict(given_state['D_optimizer'])
-            self.G_optimizer.load_state_dict(given_state['G_optimizer'])
+        self.prev_state = self.get_state()
+        if recompute_state:
+            self.set_state(recompute_state)
 
         def sample_data():
-            if given_state:
-                data, target = given_state['data'].pop(0)
+            if recompute_state:
+                data, target = recompute_state['data'].pop(0)
             else:
                 data, target = self.running["train_loader_iterator"].__next__()
                 self.prev_state['data'].append((data, target))
             data, target = data.to(self.device), target.to(self.device)
-            # print(f"data hash of {self.worker_id} = {data.abs().sum().item()}")
             return data, target
-
-        def update_rng_state():
-            if given_state:
-                torch.set_rng_state(given_state['rng'].pop(0))
-            else:
-                self.prev_state['rng'].append(torch.get_rng_state())
-            # print(f"rng state of {self.worker_id} = {torch.get_rng_state().sum().item()}")
-            # print(f"optimizer of {self.worker_id} = {sum(p.view(-1).sum().item() for p in self.D_optimizer.param_groups[0]['params'])}")
 
         # save old params
         with torch.no_grad():
@@ -219,15 +255,14 @@ class GANWorker(TorchWorker):
                     param_state["old"] = p.detach().clone()
 
         ### Train discriminator ###
-        for _ in range(self.D_iters):
-            data, target = sample_data()
-            update_rng_state()
-            D_metrics = self.compute_D_grad(data, target if self.conditional else None)
-            self.D_optimizer.step()
-        ### Train generator every `D_iters` ###
-        update_rng_state()
-        G_metrics = self.compute_G_grad()
-        self.G_optimizer.step()
+        for _ in range(10):
+            for _ in range(self.D_iters):
+                data, target = sample_data()
+                D_metrics = self.compute_D_grad(data, target if self.conditional else None)
+                self.D_optimizer.step()
+            ### Train generator every `D_iters` ###
+            G_metrics = self.compute_G_grad()
+            self.G_optimizer.step()
 
         # save neg param diff as grad and restore old param
         with torch.no_grad():
@@ -236,7 +271,7 @@ class GANWorker(TorchWorker):
                     param_state = self.state[p]
                     if p.grad is None:
                         p.grad = torch.empty_like(p)
-                    delta = param_state["old"] - p
+                    delta = (param_state["old"] - p) / group['lr']
                     p.copy_(param_state["old"])
                     p.grad.copy_(delta)
                     param_state['grad'] = p.grad.detach().clone()
@@ -246,17 +281,12 @@ class GANWorker(TorchWorker):
         results["length"] = len(target)
         results["loss"] = 0.0
         results["metrics"] = dict(**D_metrics, **G_metrics)
-        self.local_steps += 1
 
-        # recomputed grad should be accessed directly from p.grad
-        if not given_state:
-            self._save_grad()
+        self._save_grad()
 
-        # if given state, reset optimizer to original state
-        if given_state:
-            self.model.load_state_dict(self.prev_state['model'])
-            self.D_optimizer.load_state_dict(self.prev_state['D_optimizer'])
-            self.G_optimizer.load_state_dict(self.prev_state['G_optimizer'])
+        # if given state, reset optimizer to original state XXXXXXXXXXXXXX
+        if recompute_state:
+            self.set_state(self.prev_state)
 
         return results
 
@@ -332,6 +362,11 @@ class GANWorker(TorchWorker):
 class GANMomentumWorker(GANWorker, MomentumWorker):
     def __str__(self) -> str:
         return f"GANMomentumWorker [{self.worker_id}]"
+
+
+class GANAdamWorker(GANWorker, AdamWorker):
+    def __str__(self) -> str:
+        return f"GANAdamWorker [{self.worker_id}]"
 
 
 ###############################################################################

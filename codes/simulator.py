@@ -307,6 +307,7 @@ class ParallelTrainerCC(ParallelTrainer):
         self.num_peers = num_peers
         self.tolerance = 0.1
         self.banned = set()
+        print("--- Check of Computation ---")
 
     def aggregation_and_update(self):
         # If there are Byzantine workers, ask them to craft attacks based on the updated models.
@@ -324,14 +325,6 @@ class ParallelTrainerCC(ParallelTrainer):
         def sends_grad(w):
             return w.worker_id not in self.banned and w.worker_id not in validators
 
-        def get_true_gradient(w):
-            # if byzantine, use get_gradient() to get attack
-            if not isinstance(w, type(self.workers[0])):
-                return w.get_gradient()
-            # else, return current and _not_ accelerated, estimate of gradient
-            return torch.cat([w.state[p]['grad'].view(-1) for group in w.optimizer.param_groups for p in group['params']])
-
-        true_gradients = self.parallel_get(lambda w: get_true_gradient(w) if sends_grad(w) else None)
         gradients = self.parallel_get(lambda w: w.get_gradient() if sends_grad(w) else None)
         aggregated = self.aggregator([g for g in gradients if g is not None])
 
@@ -340,9 +333,9 @@ class ParallelTrainerCC(ParallelTrainer):
             # Get target's state
             prev_target_state = deepcopy(self.workers[target].prev_state)
             # The validator recomputes the grad at target's state and check for significant mismatch
-            true_grad = true_gradients[target]
-            self.workers[validator].compute_gradient(given_state=prev_target_state)
-            recomputed_grad = get_true_gradient(self.workers[validator])
+            true_grad = gradients[target]
+            self.workers[validator].compute_gradient(recompute_state=prev_target_state)
+            recomputed_grad = self.workers[validator].get_gradient()
             rel_error = (true_grad - recomputed_grad).pow(2).sum().sqrt() / true_grad.pow(2).sum().sqrt()
             if rel_error.item() > self.tolerance:
                 self.banned.add(validator)

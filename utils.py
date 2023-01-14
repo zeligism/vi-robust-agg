@@ -3,6 +3,7 @@ import numpy as np
 import os
 import torch
 from collections import Counter
+from PIL import Image
 from torchvision import datasets
 import torch.nn.functional as F
 
@@ -27,6 +28,7 @@ from codes.worker import (
     ByzantineQuadraticGameWorker,
     GANWorker,
     GANMomentumWorker,
+    GANAdamWorker,
     ByzantineGANWorker,
 )
 from codes.server import TorchServer
@@ -121,6 +123,7 @@ def get_args():
     parser.add_argument("--gan", action="store_true", default=False, help="Setup for GAN training (ignores other setups)")
     parser.add_argument("--conditional", action="store_true", default=False, help="Conditional GAN")
     parser.add_argument("--D-iters", type=int, default=1, help="[HP] D iters per G iter")
+    parser.add_argument("--betas", type=float, default=(0.0, 0.0), nargs=2, help="[HP] betas for AdamWorker")
     # Check Computation
     parser.add_argument("--num-peers", type=int, default=0, help="[HP] num of peers for checking grad validity")
 
@@ -300,7 +303,7 @@ def initialize_worker(
     # The first n - f workers are benign workers
     if worker_rank < args.n - args.f:
         if args.gan:
-            return GANMomentumWorker(momentum=args.momentum, **worker_opts)
+            return GANAdamWorker(betas=args.betas, **worker_opts)
         elif args.quadratic:
             return QuadraticGameMomentumWorker(momentum=args.momentum, **worker_opts)
         else:
@@ -369,7 +372,8 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
 
     ### GAN Setup ###
     if args.gan:
-        client_lr = 0.1 * LR
+        LR = 1e-3
+        client_lr = LR
         server_lr = LR
         if args.conditional:
             model = ConditionalResNetGAN().to(device)
@@ -377,11 +381,17 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
             model = ResNetGAN().to(device)
         print("D num of params:", sum(p.numel() for p in model.D.parameters()))
         print("G num of params:", sum(p.numel() for p in model.G.parameters()))
+        # optimizers = [{
+        #     "D": torch.optim.SGD(model.D.parameters(), lr=client_lr * 2),
+        #     "G": torch.optim.SGD(model.G.parameters(), lr=client_lr),
+        #     "all": torch.optim.SGD(model.parameters(), lr=client_lr),
+        # } for _ in range(args.n)]
+        # server_opt = torch.optim.SGD(model.parameters(), lr=server_lr)
         betas = (0.5, 0.9)
         optimizers = [{
             "D": torch.optim.Adam(model.D.parameters(), lr=client_lr * 2, betas=betas),
             "G": torch.optim.Adam(model.G.parameters(), lr=client_lr, betas=betas),
-            "all": torch.optim.Adam(model.parameters(), lr=client_lr),  # ugly hack but whatever
+            "all": torch.optim.Adam(model.parameters(), lr=client_lr),
         } for _ in range(args.n)]
         server_opt = torch.optim.Adam(model.parameters(), lr=server_lr, betas=betas)
         loss_func = get_GAN_loss_func()
@@ -392,7 +402,6 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         def save_snapshot_hook(trainer, epoch, batch_idx):
 
             def save_snapshot(w):
-                from PIL import Image
                 if batch_idx % (len(w.data_loader) // w.progress_frames_freq) == 0:
                     frame = w.update_G_progress()
                     fp = os.path.join(out_dir, f'w{w.worker_id:02d}_epoch{epoch:03d}_batch{batch_idx:04d}.png')
@@ -416,8 +425,8 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
             print("Generating dataset for quadratic game...")
             QUADRATIC_GAME_DATA = generate_quadratic_game_dataset(N=args.quadratic_N,
                                                                   dim=args.quadratic_dim)
-        client_lr = 0.5 * LR
-        server_lr = 0.5 * LR
+        client_lr = LR
+        server_lr = LR
         model = TwoPlayers(dim=args.quadratic_dim)
         optimizers = [{
             "player1": torch.optim.SGD([model.player1], lr=client_lr),
@@ -471,6 +480,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
                 sampler_callback=get_test_sampler_callback(args),
                 **kwargs,
             )
+            Evaluator = QuadraticGameEvaluator
         else:
             test_loader = mnist(
                 data_dir=DATA_DIR,
@@ -481,8 +491,8 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
                 sampler_callback=get_test_sampler_callback(args),
                 **kwargs,
             )
+            Evaluator = DistributedEvaluator
 
-        Evaluator = QuadraticGameEvaluator if args.quadratic else DistributedEvaluator
         evaluator = Evaluator(
             model=model,
             data_loader=test_loader,
