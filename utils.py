@@ -25,6 +25,7 @@ from codes.worker import (
     MomentumWorker,
     QuadraticGameWorker,
     QuadraticGameMomentumWorker,
+    QuadraticGameAdamWorker,
     ByzantineQuadraticGameWorker,
     GANWorker,
     GANMomentumWorker,
@@ -115,7 +116,7 @@ def get_args():
     # Quadratic Game
     parser.add_argument("--quadratic", action="store_true", default=False,
                         help="Setup for quadratic games (ignores other setups except args.gan)")
-    parser.add_argument("--quadratic-N", type=int, default=10000,
+    parser.add_argument("--quadratic-N", type=int, default=1000,
                         help="[HP] size of quadratic game dataset")
     parser.add_argument("--quadratic-dim", type=int, default=10,
                         help="[HP] dimension of quadratic game")
@@ -146,6 +147,8 @@ LR = 0.01
 # Fixed HPs
 BATCH_SIZE = 32
 TEST_BATCH_SIZE = 128
+GAN_BATCH_SIZE = 128
+QUADRATIC_GAME_BATCH_SIZE = 10
 
 
 def _get_aggregator(args):
@@ -264,11 +267,12 @@ def initialize_worker(
 ):
     if args.gan or not args.quadratic:
         dataset = mnist32 if args.gan else mnist
+        batch_size = GAN_BATCH_SIZE if args.gan else BATCH_SIZE
         train_loader = dataset(
             data_dir=DATA_DIR,
             train=True,
             download=True,
-            batch_size=BATCH_SIZE,
+            batch_size=batch_size,
             sampler_callback=get_sampler_callback(args, worker_rank),
             dataset_cls=datasets.MNIST,
             drop_last=True,  # Exclude the influence of non-full batch.
@@ -277,7 +281,7 @@ def initialize_worker(
     else:
         train_loader = quadratic_game(
             data=QUADRATIC_GAME_DATA,
-            batch_size=BATCH_SIZE,
+            batch_size=QUADRATIC_GAME_BATCH_SIZE,
             sampler_callback=get_sampler_callback(args, worker_rank),
             drop_last=True,
             **kwargs,
@@ -381,18 +385,18 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
             model = ResNetGAN().to(device)
         print("D num of params:", sum(p.numel() for p in model.D.parameters()))
         print("G num of params:", sum(p.numel() for p in model.G.parameters()))
-        # optimizers = [{
-        #     "D": torch.optim.SGD(model.D.parameters(), lr=client_lr * 2),
-        #     "G": torch.optim.SGD(model.G.parameters(), lr=client_lr),
-        #     "all": torch.optim.SGD(model.parameters(), lr=client_lr),
-        # } for _ in range(args.n)]
+        optimizers = [{
+            "D": torch.optim.SGD(model.D.parameters(), lr=client_lr * 2),
+            "G": torch.optim.SGD(model.G.parameters(), lr=client_lr),
+            "all": torch.optim.SGD(model.parameters(), lr=client_lr),
+        } for _ in range(args.n)]
         # server_opt = torch.optim.SGD(model.parameters(), lr=server_lr)
         betas = (0.5, 0.9)
-        optimizers = [{
-            "D": torch.optim.Adam(model.D.parameters(), lr=client_lr * 2, betas=betas),
-            "G": torch.optim.Adam(model.G.parameters(), lr=client_lr, betas=betas),
-            "all": torch.optim.Adam(model.parameters(), lr=client_lr),
-        } for _ in range(args.n)]
+        # optimizers = [{
+        #     "D": torch.optim.Adam(model.D.parameters(), lr=client_lr * 2, betas=betas),
+        #     "G": torch.optim.Adam(model.G.parameters(), lr=client_lr, betas=betas),
+        #     "all": torch.optim.Adam(model.parameters(), lr=client_lr),
+        # } for _ in range(args.n)]
         server_opt = torch.optim.Adam(model.parameters(), lr=server_lr, betas=betas)
         loss_func = get_GAN_loss_func()
         # Save GAN snapshots to track progress
@@ -425,6 +429,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
             print("Generating dataset for quadratic game...")
             QUADRATIC_GAME_DATA = generate_quadratic_game_dataset(N=args.quadratic_N,
                                                                   dim=args.quadratic_dim)
+        LR = 1e-4
         client_lr = LR
         server_lr = LR
         model = TwoPlayers(dim=args.quadratic_dim)
@@ -466,7 +471,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         log_interval=args.log_interval,
         metrics=metrics,
         use_cuda=args.use_cuda,
-        debug=False,
+        debug=args.debug,
         **trainer_kwargs,
     )
 
@@ -475,7 +480,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         if args.quadratic:
             test_loader = quadratic_game(
                 data=QUADRATIC_GAME_DATA,
-                batch_size=TEST_BATCH_SIZE,
+                batch_size=args.quadratic_N,
                 shuffle=False,
                 sampler_callback=get_test_sampler_callback(args),
                 **kwargs,

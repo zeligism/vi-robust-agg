@@ -5,10 +5,17 @@ from torchvision import datasets
 from ..utils import log_dict
 
 
-def random_psd_matrix(N, dim):
+def random_psd_matrix(N, dim, mu=0., ell=None):
+    # https://github.com/hugobb/sgda/blob/main/gamesopt/games/quadratic_games.py
     M = torch.randn(N, dim, dim)
     PSD_M = torch.einsum("bik,bjk->bij", M, M)  # batched version of `M @ M.T`
-    return PSD_M
+    eigs, V = torch.linalg.eig(PSD_M)
+    eigs.real = abs(eigs.real)
+    if ell is not None:
+        R_0 = ((1 / eigs).real).min(-1, keepdim=True)[0]
+        eigs = eigs * R_0 * ell
+    matrix = (V @ torch.diag_embed(eigs) @ torch.linalg.inv(V)).real
+    return matrix
 
 
 def random_vector(N, dim):

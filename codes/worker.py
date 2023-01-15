@@ -110,6 +110,35 @@ class TorchWorker(object):
                 layer_gradients.append(param_state["saved_grad"].data.view(-1))
         return torch.cat(layer_gradients)
 
+    @torch.no_grad()
+    def _cache_old_params(self):
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                param_state = self.state[p]
+                param_state["old"] = p.detach().clone()
+
+    @torch.no_grad()
+    def _set_delta_as_grad(self):
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                param_state = self.state[p]
+                if p.grad is None:
+                    continue
+                delta = (param_state["old"] - p) / group['lr']
+                p.copy_(param_state["old"])
+                p.grad.copy_(delta)
+                param_state['grad'] = p.grad.detach().clone()
+
+    def _get_model_state(self):
+        return {
+            "rng": torch.get_rng_state(),
+            "model": deepcopy(self.model.state_dict()),
+        }
+
+    def _set_model_state(self, state):
+        self.model.load_state_dict(state['model'])
+        torch.set_rng_state(state['rng'])
+
 
 class MomentumWorker(TorchWorker):
     def __init__(self, momentum, *args, **kwargs):
@@ -149,8 +178,6 @@ class AdamWorker(TorchWorker):
             for p in group["params"]:
                 param_state = self.state[p]
                 if p.grad is None:
-                    # param_state["momentum_buffer"] = torch.empty_like(p)
-                    # param_state["momentumsq_buffer"] = torch.empty_like(p)
                     continue
                 if "momentum_buffer" not in param_state:
                     param_state["momentum_buffer"] = torch.clone(p.grad).detach()
@@ -168,6 +195,8 @@ class AdamWorker(TorchWorker):
         for group in self.optimizer.param_groups:
             for p in group["params"]:
                 param_state = self.state[p]
+                if "momentum_buffer" not in param_state:
+                    continue
                 m = param_state["momentum_buffer"].data.view(-1)
                 v = param_state["momentumsq_buffer"].data.view(-1)
                 if self.correct_bias:
@@ -202,6 +231,7 @@ class GANWorker(TorchWorker):
         self.progress_frames = []
         self.progress_frames_freq = 16  # per epoch, better if = multiple of 2
         self.progress_frames_maxlen = 200
+        self.num_iters = 0
 
     def __str__(self) -> str:
         return f"GANWorker [{self.worker_id}]"
@@ -210,22 +240,18 @@ class GANWorker(TorchWorker):
     def add_noise(tensor, std=0.02):
         return tensor + std * torch.randn_like(tensor)
 
-    def get_state(self):
-        return {
-            "data": [],
-            "rng": torch.get_rng_state(),
-            "model": deepcopy(self.model.state_dict()),
-            # "D_optimizer": deepcopy(self.D_optimizer.state_dict()),
-            # "G_optimizer": deepcopy(self.G_optimizer.state_dict()),
-        }
+    def _get_model_state(self):
+        state = super()._get_model_state()
+        state["num_iters"] = self.num_iters
+        return state
 
-    def set_state(self, state):
-        self.model.load_state_dict(state['model'])
-        # self.D_optimizer.load_state_dict(state['D_optimizer'])
-        # self.G_optimizer.load_state_dict(state['G_optimizer'])
-        torch.set_rng_state(state['rng'])
+    def _set_model_state(self, state):
+        super()._set_model_state(state)
+        self.num_iters = state['num_iters']
 
-    def compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
+    def compute_gradient(self, steps=1, recompute_state={}) -> Tuple[float, int]:
+        """recompute_state works only for SGD.
+        """
         results = {}
 
         # cache batch size
@@ -234,9 +260,10 @@ class GANWorker(TorchWorker):
             self.batch_size = data.shape[0]
 
         # reset prev state if not given fixed state
-        self.prev_state = self.get_state()
+        self.prev_state = self._get_model_state()
+        self.prev_state["data"] = []
         if recompute_state:
-            self.set_state(recompute_state)
+            self._set_model_state(recompute_state)
 
         def sample_data():
             if recompute_state:
@@ -247,46 +274,41 @@ class GANWorker(TorchWorker):
             data, target = data.to(self.device), target.to(self.device)
             return data, target
 
-        # save old params
-        with torch.no_grad():
-            for group in self.optimizer.param_groups:
-                for p in group["params"]:
-                    param_state = self.state[p]
-                    param_state["old"] = p.detach().clone()
-
-        ### Train discriminator ###
-        for _ in range(10):
-            for _ in range(self.D_iters):
+        # Train
+        self._cache_old_params()
+        D_metrics = {}
+        G_metrics = {}
+        for _ in range(steps):
+            if (self.num_iters + 1) % (self.D_iters + 1) > 0:
+                ### Train discriminator ###
                 data, target = sample_data()
+                length = len(target)
                 D_metrics = self.compute_D_grad(data, target if self.conditional else None)
                 self.D_optimizer.step()
-            ### Train generator every `D_iters` ###
-            G_metrics = self.compute_G_grad()
-            self.G_optimizer.step()
+            else:
+                ### Train generator every `D_iters` ###
+                data, target = None, None
+                length = self.batch_size
+                G_metrics = self.compute_G_grad()
+                self.G_optimizer.step()
+            self.num_iters += 1
 
-        # save neg param diff as grad and restore old param
-        with torch.no_grad():
-            for group in self.optimizer.param_groups:
-                for p in group["params"]:
-                    param_state = self.state[p]
-                    if p.grad is None:
-                        p.grad = torch.empty_like(p)
-                    delta = (param_state["old"] - p) / group['lr']
-                    p.copy_(param_state["old"])
-                    p.grad.copy_(delta)
-                    param_state['grad'] = p.grad.detach().clone()
-
+        # Update stats
         self.running["data"] = data
         self.running["target"] = target
-        results["length"] = len(target)
+        results["length"] = length
         results["loss"] = 0.0
         results["metrics"] = dict(**D_metrics, **G_metrics)
+        for metric in self.METRICS:
+            if metric not in results["metrics"]:
+                results["metrics"][metric] = 0.0
 
+        # Update worker's gradient
+        self._set_delta_as_grad()
         self._save_grad()
-
-        # if given state, reset optimizer to original state XXXXXXXXXXXXXX
+        # reset to previous state when done recomputing
         if recompute_state:
-            self.set_state(self.prev_state)
+            self._set_model_state(self.prev_state)
 
         return results
 
@@ -320,6 +342,12 @@ class GANWorker(TorchWorker):
         if self.conditional:
             if hasattr(self.data_loader.dataset, "labels"):
                 local_labels = self.data_loader.dataset.labels
+                rand_label_idx = torch.randint(0, len(local_labels), (batch_size,))
+                fake_label = local_labels[rand_label_idx].to(self.device)
+            elif hasattr(self.data_loader.dataset, "targets"):
+                targets = self.data_loader.dataset.targets
+                local_labels = torch.Tensor(list(set(t.item() for t in targets))).int()
+                self.data_loader.dataset.labels = local_labels
                 rand_label_idx = torch.randint(0, len(local_labels), (batch_size,))
                 fake_label = local_labels[rand_label_idx].to(self.device)
             else:
@@ -383,91 +411,72 @@ class QuadraticGameWorker(TorchWorker):
         self.optimizer1 = self.optimizer["player1"]
         self.optimizer2 = self.optimizer["player2"]
         self.optimizer = self.optimizer["all"]  # dummy optimizer for passing grads
+        self.num_iters = 0
 
     def __str__(self) -> str:
         return f"QuadraticGameWorker [{self.worker_id}]"
 
-    def compute_gradient(self, given_state={}) -> Tuple[float, int]:
+    def _get_model_state(self):
+        state = super()._get_model_state()
+        state["num_iters"] = self.num_iters
+        return state
+
+    def _set_model_state(self, state):
+        super()._set_model_state(state)
+        self.num_iters = state['num_iters']
+
+    def compute_gradient(self, steps=1, recompute_state={}) -> Tuple[float, int]:
+        """recompute_state works only for SGD.
+        """
         results = {}
 
         # reset prev state if not given fixed state
-        self.prev_state = {
-            "data": [],
-            "rng": [],
-            "model": deepcopy(self.model.state_dict()),
-            "optimizer1": deepcopy(self.optimizer1.state_dict()),
-            "optimizer2": deepcopy(self.optimizer2.state_dict()),
-        }
-
-        if given_state:
-            self.model.load_state_dict(given_state['model'])
-            self.optimizer1.load_state_dict(given_state['optimizer1'])
-            self.optimizer2.load_state_dict(given_state['optimizer2'])
+        self.prev_state = self._get_model_state()
+        self.prev_state["data"] = []
+        if recompute_state:
+            self._set_model_state(recompute_state)
 
         def sample_data():
-            if given_state:
-                data = given_state['data'].pop(0)
+            if recompute_state:
+                data = recompute_state['data'].pop(0)
             else:
                 data = self.running["train_loader_iterator"].__next__()
                 self.prev_state['data'].append(data)
             data = [d.to(self.device) for d in data]
             return data
 
-        def update_rng_state():
-            if given_state:
-                torch.set_rng_state(given_state['rng'].pop(0))
-            else:
-                self.prev_state['rng'].append(torch.get_rng_state())
-
         # save old params
-        with torch.no_grad():
-            for group in self.optimizer.param_groups:
-                for p in group["params"]:
-                    param_state = self.state[p]
-                    param_state["old"] = p.detach().clone()
-
-        ### Train player1 ###
-        data = sample_data()
-        update_rng_state()
-        loss1 = self.loss_func(self.model.player1, self.model.player2, *data)
-        self.optimizer1.zero_grad()
-        loss1.backward()
-        self.optimizer1.step()
-
-        ### Train player2 ###
-        data = sample_data()
-        update_rng_state()
-        loss2 = self.loss_func(self.model.player1, self.model.player2, *data)
-        self.optimizer2.zero_grad()
-        (-loss2).backward()
-        self.optimizer2.step()
-
-        # save neg param diff as grad and restore old param
-        with torch.no_grad():
-            for group in self.optimizer.param_groups:
-                for p in group["params"]:
-                    param_state = self.state[p]
-                    if p.grad is None:
-                        p.grad = torch.empty_like(p)
-                    delta = param_state["old"] - p
-                    p.copy_(param_state["old"])
-                    p.grad.copy_(delta)
-                    param_state['grad'] = p.grad.detach().clone()
+        self._cache_old_params()
+        loss1 = torch.zeros(1)
+        loss2 = torch.zeros(1)
+        for _ in range(steps):
+            if self.num_iters % 2 == 0:
+                ### Train player1 ###
+                data = sample_data()
+                loss1 = self.loss_func(self.model.player1, self.model.player2, *data)
+                self.optimizer1.zero_grad()
+                loss1.backward()
+                self.optimizer1.step()
+            else:
+                ### Train player2 ###
+                data = sample_data()
+                loss2 = self.loss_func(self.model.player1, self.model.player2, *data)
+                self.optimizer2.zero_grad()
+                (-loss2).backward()
+                self.optimizer2.step()
+            self.num_iters += 1
 
         self.running["data"] = data
         results["length"] = data[0].size(0)
         results["loss"] = (loss1.item() + loss2.item()) / 2
         results["metrics"] = {"loss1": loss1.item(), "loss2": loss2.item()}
 
-        # recomputed grad should be accessed directly from p.grad
-        if not given_state:
-            self._save_grad()
-
-        # if given state, reset optimizer to original state
-        if given_state:
-            self.model.load_state_dict(self.prev_state['model'])
-            self.optimizer1.load_state_dict(self.prev_state['optimizer1'])
-            self.optimizer2.load_state_dict(self.prev_state['optimizer2'])
+        # Update worker's gradient
+        self._set_delta_as_grad()
+        self._save_grad()
+        # reset to previous state when done recomputing
+        if recompute_state:
+            self._set_model_state(self.prev_state)
 
         return results
 
@@ -475,6 +484,11 @@ class QuadraticGameWorker(TorchWorker):
 class QuadraticGameMomentumWorker(QuadraticGameWorker, MomentumWorker):
     def __str__(self) -> str:
         return f"QuadraticGameMomentumWorker [{self.worker_id}]"
+
+
+class QuadraticGameAdamWorker(QuadraticGameWorker, AdamWorker):
+    def __str__(self) -> str:
+        return f"QuadraticGameAdamWorker [{self.worker_id}]"
 
 ###############################################################################
 

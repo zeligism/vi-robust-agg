@@ -25,7 +25,7 @@ if args.debug:
     MAX_BATCHES_PER_EPOCH = 30
     EPOCHS = 10
 else:
-    MAX_BATCHES_PER_EPOCH = 30
-    EPOCHS = 20
+    MAX_BATCHES_PER_EPOCH = 10**10
+    EPOCHS = 40
 
 main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH)

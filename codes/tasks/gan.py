@@ -19,17 +19,17 @@ class ConditionalBatchNorm2d(nn.Module):
         self.Embedding = nn.Embedding if embed_class else nn.Linear
         if cond_dim == 0 and num_classes == 0:
             self.bn = nn.BatchNorm2d(num_features, affine=True)
-        if cond_dim > 0:
+        elif cond_dim > 0 and num_classes == 0:
             self.bn = nn.BatchNorm2d(num_features, affine=False)
             self.cond_map = nn.Linear(cond_dim, 2 * num_features)
             self.cond_map.weight.data[:, :num_features].normal_(1, 0.02)
             self.cond_map.weight.data[:, num_features:].zero_()
-        if num_classes > 0:
+        elif cond_dim == 0 and num_classes > 0:
             self.bn = nn.BatchNorm2d(num_features, affine=False)
             self.label_map = self.Embedding(num_classes, 2 * num_features)
             self.label_map.weight.data[:, :num_features].normal_(1, 0.02)
             self.label_map.weight.data[:, num_features:].zero_()
-        if cond_dim > 0 and num_classes > 0:
+        elif cond_dim > 0 and num_classes > 0:
             cond_features = num_features // 2
             self.bn1 = nn.BatchNorm2d(cond_features, affine=False)
             self.cond_map = nn.Linear(cond_dim, 2 * cond_features)
@@ -48,7 +48,7 @@ class ConditionalBatchNorm2d(nn.Module):
         # assert label is None or self.num_classes > 0
         if self.cond_dim == 0 and self.num_classes == 0:
             out = self.bn(x)
-        if self.cond_dim > 0 and self.num_classes == 0:
+        elif self.cond_dim > 0 and self.num_classes == 0:
             out = self.bn(x)
             if cond is not None:
                 gamma, beta = self.cond_map(cond).chunk(2, dim=1)

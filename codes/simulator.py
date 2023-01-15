@@ -296,7 +296,10 @@ class QuadraticGameEvaluator(DistributedEvaluator):
 
 
 class ParallelTrainerCC(ParallelTrainer):
-    """A parallel trainer with mechanisms for validating gradients."""
+    """
+    A parallel trainer with checks of computations of gradients.
+    NOTE: Works only with SGD (`w.get_gradient()` may not return exact computation due to momentum, etc.)
+    """
 
     def __init__(self, num_peers: int = 0, *args, **kwargs):
         """
@@ -305,7 +308,7 @@ class ParallelTrainerCC(ParallelTrainer):
         """
         super().__init__(*args, **kwargs)
         self.num_peers = num_peers
-        self.tolerance = 0.1
+        self.tolerance = 0.05
         self.banned = set()
         print("--- Check of Computation ---")
 
@@ -317,33 +320,42 @@ class ParallelTrainerCC(ParallelTrainer):
         #-------- Check Computation --------#
         # sample validators and targets
         shuffled = torch.randperm(len(self.workers)).tolist()
-        sampled = [w for w in shuffled if w not in self.banned][:2 * self.num_peers]
-        validators, targets = sampled[0::2], sampled[1::2]
-        # if self.debug:
-        #     print(f"validators = {validators}, targets = {targets}")
+        shuffled_notbanned = [w for w in shuffled if w not in self.banned]
+        sampled = shuffled_notbanned[:2 * self.num_peers]
+        if len(shuffled_notbanned) == len(sampled):
+            self.num_peers = self.num_peers // 2
+            if self.debug:
+                print(f"Reducing num of peers by half (num_peers = {self.num_peers}).")
+            gradients = self.parallel_get(lambda w: w.get_gradient() if w not in self.banned else None)
+            aggregated = self.aggregator([g for g in gradients if g is not None])
+        else:
+            validators, targets = sampled[0::2], sampled[1::2]
+            if self.debug:
+                print(f"validators = {validators}, targets = {targets}")
 
-        def sends_grad(w):
-            return w.worker_id not in self.banned and w.worker_id not in validators
+            def sends_grad(w):
+                return w.worker_id not in self.banned and w.worker_id not in validators
 
-        gradients = self.parallel_get(lambda w: w.get_gradient() if sends_grad(w) else None)
-        aggregated = self.aggregator([g for g in gradients if g is not None])
+            gradients = self.parallel_get(lambda w: w.get_gradient() if sends_grad(w) else None)
+            aggregated = self.aggregator([g for g in gradients if g is not None])
 
-        orig_rng_state = torch.get_rng_state()
-        for validator, target in zip(validators, targets):
-            # Get target's state
-            prev_target_state = deepcopy(self.workers[target].prev_state)
-            # The validator recomputes the grad at target's state and check for significant mismatch
-            true_grad = gradients[target]
-            self.workers[validator].compute_gradient(recompute_state=prev_target_state)
-            recomputed_grad = self.workers[validator].get_gradient()
-            rel_error = (true_grad - recomputed_grad).pow(2).sum().sqrt() / true_grad.pow(2).sum().sqrt()
-            if rel_error.item() > self.tolerance:
-                self.banned.add(validator)
-                self.banned.add(target)
-                # if self.debug:
-                #     print(f"Banning worker {validator} and {target}"
-                #           f" (reason: {validator} accused {target}, rel_error={rel_error.item()})")
-        torch.set_rng_state(orig_rng_state)
+            orig_rng_state = torch.get_rng_state()
+            for validator, target in zip(validators, targets):
+                # Get target's state
+                prev_target_state = deepcopy(self.workers[target].prev_state)
+                # The validator recomputes the grad at target's state and checks for significant mismatch
+                target_grad = gradients[target]
+                self.workers[validator].compute_gradient(recompute_state=prev_target_state)
+                target_grad_by_validator = self.workers[validator].get_gradient()
+                mismatch = torch.linalg.vector_norm(target_grad - target_grad_by_validator, ord=1).item()
+                rel_error = mismatch / torch.linalg.vector_norm(target_grad, ord=1).item()
+                if rel_error > self.tolerance:
+                    self.banned.add(validator)
+                    self.banned.add(target)
+                    if self.debug:
+                        print(f"Banning worker {validator} and {target}"
+                              f" (reason: {validator} accused {target}, rel_error={rel_error})")
+            torch.set_rng_state(orig_rng_state)
         #--------------------------------#
 
         # Assume that the model and optimizers are shared among workers.
