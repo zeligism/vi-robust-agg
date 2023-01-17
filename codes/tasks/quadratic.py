@@ -5,11 +5,11 @@ from torchvision import datasets
 from ..utils import log_dict
 
 
-def random_psd_matrix(N, dim, mu=0., ell=None):
+def random_matrix(num_samples, dim, mu=0., ell=None):
     # https://github.com/hugobb/sgda/blob/main/gamesopt/games/quadratic_games.py
-    M = torch.randn(N, dim, dim)
-    PSD_M = torch.einsum("bik,bjk->bij", M, M)  # batched version of `M @ M.T`
-    eigs, V = torch.linalg.eig(PSD_M)
+    matrix = torch.randn(num_samples, dim, dim)
+    eigs: torch.Tensor
+    eigs, V = torch.linalg.eig(matrix)
     eigs.real = abs(eigs.real)
     if ell is not None:
         R_0 = ((1 / eigs).real).min(-1, keepdim=True)[0]
@@ -22,10 +22,10 @@ def random_vector(N, dim):
     return torch.randn(N, dim)
 
 
-def generate_quadratic_game_dataset(N, dim):
-    A11 = random_psd_matrix(N, dim)
-    A12 = random_psd_matrix(N, dim)
-    A22 = random_psd_matrix(N, dim)
+def generate_quadratic_game_dataset(N, dim, mu=0., ell=None):
+    A11 = random_matrix(N, dim, mu=mu, ell=ell)
+    A12 = random_matrix(N, dim, mu=mu, ell=ell)
+    A22 = random_matrix(N, dim, mu=mu, ell=ell)
     a1 = random_vector(N, dim)
     a2 = random_vector(N, dim)
     bias = random_vector(N, 1)

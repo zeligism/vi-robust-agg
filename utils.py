@@ -62,6 +62,9 @@ from codes.tasks.gan import mnist32, ResNetGAN, ConditionalResNetGAN
 from codes.gan_utils import tensor_to_np, make_animation
 
 QUADRATIC_GAME_DATA = None
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__)) + "/"
+DATA_DIR = ROOT_DIR + "datasets/"
+EXP_DIR = ROOT_DIR + f"outputs/"
 
 
 def get_args():
@@ -74,59 +77,48 @@ def get_args():
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--dry-run", action="store_true", default=False)
     parser.add_argument("--identifier", type=str, default="debug", help="")
-    parser.add_argument(
-        "--plot",
-        action="store_true",
-        default=False,
-        help="If plot is enabled, then ignore all other options.",
-    )
+    parser.add_argument("--identifier", type=str, default="debug", help="")
 
     # Experiment configuration
+    parser.add_argument("--lr", type=float, default=0.01, help="[HP] learning rate")
+    parser.add_argument("--momentum", type=float, default=0.0, help="[HP] momentum")
+    parser.add_argument("--betas", type=float, default=(0.0, 0.0), nargs=2, help="[HP] betas for AdamWorker (for GAN)")
+    parser.add_argument("-BS", "--batch-size", type=int, help="Batch size")
+    parser.add_argument("-e", "--epochs", type=int, help="Number of epochs")
+    parser.add_argument("--client-steps", type=int, help="Number of client steps before agg")
+
     parser.add_argument("-n", type=int, help="Number of workers")
     parser.add_argument("-f", type=int, help="Number of Byzantine workers.")
     parser.add_argument("--attack", type=str, default="NA", help="Type of attacks.")
     parser.add_argument("--agg", type=str, default="avg", help="")
-    parser.add_argument(
-        "--noniid",
-        action="store_true",
-        default=False,
-        help="[HP] noniidness.",
-    )
+    parser.add_argument("--noniid", action="store_true", default=False, help="noniidness.")
     parser.add_argument("--LT", action="store_true", default=False, help="Long tail")
 
-    # Key hyperparameter
     parser.add_argument("--bucketing", type=int, default=0, help="[HP] s")
-    parser.add_argument("--momentum", type=float, default=0.0, help="[HP] momentum")
-
     parser.add_argument("--clip-tau", type=float, default=10.0, help="[HP] momentum")
     parser.add_argument("--clip-scaling", type=str, default=None, help="[HP] momentum")
-
     parser.add_argument(
         "--mimic-warmup", type=int, default=1, help="the warmup phase in iterations."
-    )
-
-    parser.add_argument(
-        "--op",
-        type=int,
-        default=1,
-        help="[HP] controlling the degree of overparameterization. "
-        "Only used in exp8.",
     )
 
     # Quadratic Game
     parser.add_argument("--quadratic", action="store_true", default=False,
                         help="Setup for quadratic games (ignores other setups except args.gan)")
-    parser.add_argument("--quadratic-N", type=int, default=1000,
-                        help="[HP] size of quadratic game dataset")
-    parser.add_argument("--quadratic-dim", type=int, default=10,
+    parser.add_argument("-qN", "--quadratic-N", type=int, default=1000,
+                        help="[HP] num of samples in the quadratic game dataset")
+    parser.add_argument("-qd", "--quadratic-dim", type=int, default=10,
                         help="[HP] dimension of quadratic game")
+    parser.add_argument("-qm", "--quadratic-mu", type=float, default=0.,
+                        help="[HP] mu-strong convexity of quadratic game")
+    parser.add_argument("-qL", "--quadratic-ell", type=float, default=0.,
+                        help="[HP] L-smoothness of quadratic game")
     # GAN
     parser.add_argument("--gan", action="store_true", default=False, help="Setup for GAN training (ignores other setups)")
     parser.add_argument("--conditional", action="store_true", default=False, help="Conditional GAN")
     parser.add_argument("--D-iters", type=int, default=1, help="[HP] D iters per G iter")
-    parser.add_argument("--betas", type=float, default=(0.0, 0.0), nargs=2, help="[HP] betas for AdamWorker")
+
     # Check Computation
-    parser.add_argument("--num-peers", type=int, default=0, help="[HP] num of peers for checking grad validity")
+    parser.add_argument("-cc", "--num-peers", type=int, default=0, help="[HP] num of peers for checking grad validity")
 
     args = parser.parse_args()
 
@@ -137,18 +129,6 @@ def get_args():
     assert args.momentum >= 0, args.momentum
     assert len(args.identifier) > 0
     return args
-
-
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__)) + "/"
-DATA_DIR = ROOT_DIR + "datasets/"
-EXP_DIR = ROOT_DIR + f"outputs/"
-
-LR = 0.01
-# Fixed HPs
-BATCH_SIZE = 32
-TEST_BATCH_SIZE = 128
-GAN_BATCH_SIZE = 128
-QUADRATIC_GAME_BATCH_SIZE = 10
 
 
 def _get_aggregator(args):
@@ -267,12 +247,11 @@ def initialize_worker(
 ):
     if args.gan or not args.quadratic:
         dataset = mnist32 if args.gan else mnist
-        batch_size = GAN_BATCH_SIZE if args.gan else BATCH_SIZE
         train_loader = dataset(
             data_dir=DATA_DIR,
             train=True,
             download=True,
-            batch_size=batch_size,
+            batch_size=args.batch_size,
             sampler_callback=get_sampler_callback(args, worker_rank),
             dataset_cls=datasets.MNIST,
             drop_last=True,  # Exclude the influence of non-full batch.
@@ -281,7 +260,7 @@ def initialize_worker(
     else:
         train_loader = quadratic_game(
             data=QUADRATIC_GAME_DATA,
-            batch_size=QUADRATIC_GAME_BATCH_SIZE,
+            batch_size=args.batch_size,
             sampler_callback=get_sampler_callback(args, worker_rank),
             drop_last=True,
             **kwargs,
@@ -376,9 +355,8 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
 
     ### GAN Setup ###
     if args.gan:
-        LR = 1e-3
-        client_lr = LR
-        server_lr = LR
+        client_lr = args.lr
+        server_lr = args.lr
         if args.conditional:
             model = ConditionalResNetGAN().to(device)
         else:
@@ -390,14 +368,14 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
             "G": torch.optim.SGD(model.G.parameters(), lr=client_lr),
             "all": torch.optim.SGD(model.parameters(), lr=client_lr),
         } for _ in range(args.n)]
-        # server_opt = torch.optim.SGD(model.parameters(), lr=server_lr)
-        betas = (0.5, 0.9)
+        server_opt = torch.optim.SGD(model.parameters(), lr=server_lr)
+        # betas = (0.5, 0.9)
         # optimizers = [{
         #     "D": torch.optim.Adam(model.D.parameters(), lr=client_lr * 2, betas=betas),
         #     "G": torch.optim.Adam(model.G.parameters(), lr=client_lr, betas=betas),
         #     "all": torch.optim.Adam(model.parameters(), lr=client_lr),
         # } for _ in range(args.n)]
-        server_opt = torch.optim.Adam(model.parameters(), lr=server_lr, betas=betas)
+        # server_opt = torch.optim.Adam(model.parameters(), lr=server_lr, betas=betas)
         loss_func = get_GAN_loss_func()
         # Save GAN snapshots to track progress
         out_dir = os.path.join(LOG_DIR, "gan_output")
@@ -412,9 +390,9 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
                     im = Image.fromarray(tensor_to_np(frame))
                     im.save(fp)
                 # Also store progress video for last iter
-                if epoch == EPOCHS - 1 and batch_idx == len(w.data_loader) - 1:
-                    fp = os.path.join(out_dir, f'w{w.worker_id:02d}_progress.mp4')
-                    make_animation(w.progress_frames, fp)
+                # if epoch == EPOCHS - 1 and batch_idx == len(w.data_loader) - 1:
+                #     fp = os.path.join(out_dir, f'w{w.worker_id:02d}_progress.mp4')
+                #     make_animation(w.progress_frames, fp)
 
             trainer.parallel_call(save_snapshot)
 
@@ -428,10 +406,12 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         if QUADRATIC_GAME_DATA is None:
             print("Generating dataset for quadratic game...")
             QUADRATIC_GAME_DATA = generate_quadratic_game_dataset(N=args.quadratic_N,
-                                                                  dim=args.quadratic_dim)
-        LR = 1e-4
-        client_lr = LR
-        server_lr = LR
+                                                                  dim=args.quadratic_dim,
+                                                                  mu=args.quadratic_mu,
+                                                                  ell=args.quadratic_ell)
+        # LR = 1e-4
+        client_lr = args.lr
+        server_lr = args.lr
         model = TwoPlayers(dim=args.quadratic_dim)
         optimizers = [{
             "player1": torch.optim.SGD([model.player1], lr=client_lr),
@@ -445,6 +425,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
 
     ### Normal Setup ###
     else:
+        LR = args.lr
         model = Net().to(device)
         optimizers = [torch.optim.SGD(model.parameters(), lr=LR) for _ in range(args.n)]
         post_batch_hooks = []
@@ -491,7 +472,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
                 data_dir=DATA_DIR,
                 train=False,
                 download=True,
-                batch_size=TEST_BATCH_SIZE,
+                batch_size=args.batch_size * 8,
                 shuffle=False,
                 sampler_callback=get_test_sampler_callback(args),
                 **kwargs,
