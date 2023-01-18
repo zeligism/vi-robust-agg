@@ -272,15 +272,22 @@ class QuadraticGameEvaluator(DistributedEvaluator):
             r[name] = 0
 
         with torch.no_grad():
+            validation_loss = 0.
             for _, data in enumerate(self.data_loader):
                 data = [d.to(self.device) for d in data]
                 length = data[0].size(0)
-                loss = self.loss_func(self.model.player1, self.model.player2, *data).item()
-                r["Loss"] += loss * length
-                r["Length"] += length
+                loss = 0.
+                for turn in range(len(self.model.players)):
+                    if len(self.model.players) > 2:
+                        loss += self.loss_func(self.model.players, turn, *data)
+                    else:
+                        loss += self.loss_func(self.model.players[0], self.model.players[1], *data)
+                validation_loss += loss.item() / len(self.data_loader)
+        r["Loss"] += validation_loss * length
+        r["Length"] += length
 
-                for name, metric in self.metrics.items():
-                    r[name] += 0.0
+        for name, metric in self.metrics.items():
+            r[name] += 0.0
 
         for name in self.metrics:
             r[name] /= r["Length"]

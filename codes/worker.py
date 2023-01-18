@@ -131,13 +131,13 @@ class TorchWorker(object):
 
     def _get_model_state(self):
         return {
-            "rng": torch.get_rng_state(),
             "model": deepcopy(self.model.state_dict()),
+            # "rng": torch.get_rng_state(),
         }
 
     def _set_model_state(self, state):
         self.model.load_state_dict(state['model'])
-        torch.set_rng_state(state['rng'])
+        # torch.set_rng_state(state['rng'])
 
 
 class MomentumWorker(TorchWorker):
@@ -215,12 +215,13 @@ class GANWorker(TorchWorker):
 
     def __init__(self,
                  worker_id,
+                 worker_steps=1,
                  D_iters: int = 3,
                  conditional: bool = False,
                  *args, **kwargs):
-        self.lr_mult = 1.0
         self.batch_size = None
         self.worker_id = worker_id
+        self.worker_steps = worker_steps
         super().__init__(*args, **kwargs)
         self.D_iters = D_iters
         self.conditional = conditional
@@ -229,7 +230,7 @@ class GANWorker(TorchWorker):
         self.optimizer = self.optimizer["all"]  # dummy optimizer for passing grads
         self.init_fixed_sample()
         self.progress_frames = []
-        self.progress_frames_freq = 16  # per epoch, better if = multiple of 2
+        self.progress_frames_freq = 4  # per epoch, better if = multiple of 2
         self.progress_frames_maxlen = 200
         self.num_iters = 0
 
@@ -249,7 +250,7 @@ class GANWorker(TorchWorker):
         super()._set_model_state(state)
         self.num_iters = state['num_iters']
 
-    def compute_gradient(self, steps=1, recompute_state={}) -> Tuple[float, int]:
+    def compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
         """recompute_state works only for SGD.
         """
         results = {}
@@ -278,7 +279,7 @@ class GANWorker(TorchWorker):
         self._cache_old_params()
         D_metrics = {}
         G_metrics = {}
-        for _ in range(steps):
+        for _ in range(self.worker_steps):
             if (self.num_iters + 1) % (self.D_iters + 1) > 0:
                 ### Train discriminator ###
                 data, target = sample_data()
@@ -405,11 +406,14 @@ class QuadraticGameWorker(TorchWorker):
 
     def __init__(self,
                  worker_id,
+                 worker_steps=1,
+                 sparsity=0.,
                  *args, **kwargs):
         self.worker_id = worker_id
+        self.worker_steps = worker_steps
         super().__init__(*args, **kwargs)
-        self.optimizer1 = self.optimizer["player1"]
-        self.optimizer2 = self.optimizer["player2"]
+        self.sparsity = sparsity
+        self.optimizers = self.optimizer["players"]
         self.optimizer = self.optimizer["all"]  # dummy optimizer for passing grads
         self.num_iters = 0
 
@@ -425,7 +429,7 @@ class QuadraticGameWorker(TorchWorker):
         super()._set_model_state(state)
         self.num_iters = state['num_iters']
 
-    def compute_gradient(self, steps=1, recompute_state={}) -> Tuple[float, int]:
+    def compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
         """recompute_state works only for SGD.
         """
         results = {}
@@ -445,31 +449,29 @@ class QuadraticGameWorker(TorchWorker):
             data = [d.to(self.device) for d in data]
             return data
 
-        # save old params
+        # Train
         self._cache_old_params()
-        loss1 = torch.zeros(1)
-        loss2 = torch.zeros(1)
-        for _ in range(steps):
-            if self.num_iters % 2 == 0:
-                ### Train player1 ###
-                data = sample_data()
-                loss1 = self.loss_func(self.model.player1, self.model.player2, *data)
-                self.optimizer1.zero_grad()
-                loss1.backward()
-                self.optimizer1.step()
+        losses = []
+        for _ in range(self.worker_steps):
+            data = sample_data()
+            turn = self.num_iters % len(self.model.players)
+            if len(self.model.players) > 2:
+                loss = self.loss_func(self.model.players, turn, *data)
+                sign = 1
             else:
-                ### Train player2 ###
-                data = sample_data()
-                loss2 = self.loss_func(self.model.player1, self.model.player2, *data)
-                self.optimizer2.zero_grad()
-                (-loss2).backward()
-                self.optimizer2.step()
+                loss = self.loss_func(self.model.players[0], self.model.players[1], *data)
+                sign = (-1)**turn  # player2 maximizes objective
+            reg = self.sparsity * torch.linalg.vector_norm(self.model.players[turn], ord=1)
+            self.optimizers[turn].zero_grad()
+            (sign * loss + reg).backward()
+            self.optimizers[turn].step()
+            losses.append(loss)
             self.num_iters += 1
 
         self.running["data"] = data
         results["length"] = data[0].size(0)
-        results["loss"] = (loss1.item() + loss2.item()) / 2
-        results["metrics"] = {"loss1": loss1.item(), "loss2": loss2.item()}
+        results["loss"] = torch.stack(losses).mean()
+        results["metrics"] = {}
 
         # Update worker's gradient
         self._set_delta_as_grad()

@@ -9,8 +9,7 @@ import torch.nn.functional as F
 
 # Utility functions
 from codes.tasks.mnist import mnist, Net
-from codes.utils import top1_accuracy, initialize_logger, quadratic_loss
-from codes.gan_utils import get_GAN_loss_func
+from codes.utils import top1_accuracy, initialize_logger
 
 # Attacks
 from codes.attacks.labelflipping import LableFlippingWorker
@@ -57,9 +56,14 @@ from codes.aggregator.trimmed_mean import TM
 from codes.aggregator.krum import Krum
 
 # Quadratic games and GANs
-from codes.tasks.quadratic import quadratic_game, TwoPlayers, generate_quadratic_game_dataset
+from codes.tasks.quadratic import (
+    quadratic_game,
+    MultiPlayer,
+    generate_quadratic_game_dataset,
+    get_quadratic_loss
+)
 from codes.tasks.gan import mnist32, ResNetGAN, ConditionalResNetGAN
-from codes.gan_utils import tensor_to_np, make_animation
+from codes.gan_utils import tensor_to_np, make_animation, get_GAN_loss_func
 
 QUADRATIC_GAME_DATA = None
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__)) + "/"
@@ -67,7 +71,7 @@ DATA_DIR = ROOT_DIR + "datasets/"
 EXP_DIR = ROOT_DIR + f"outputs/"
 
 
-def get_args():
+def get_args(namespace=None):
     parser = argparse.ArgumentParser(description="")
 
     # Utility
@@ -77,15 +81,15 @@ def get_args():
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--dry-run", action="store_true", default=False)
     parser.add_argument("--identifier", type=str, default="debug", help="")
-    parser.add_argument("--identifier", type=str, default="debug", help="")
 
     # Experiment configuration
     parser.add_argument("--lr", type=float, default=0.01, help="[HP] learning rate")
     parser.add_argument("--momentum", type=float, default=0.0, help="[HP] momentum")
     parser.add_argument("--betas", type=float, default=(0.0, 0.0), nargs=2, help="[HP] betas for AdamWorker (for GAN)")
-    parser.add_argument("-BS", "--batch-size", type=int, help="Batch size")
-    parser.add_argument("-e", "--epochs", type=int, help="Number of epochs")
-    parser.add_argument("--client-steps", type=int, help="Number of client steps before agg")
+    parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
+    parser.add_argument("--max-batches-per-epoch", type=int, default=10**10, help="maximum batches per epoch")
+    parser.add_argument("--epochs", type=int, default=3, help="Number of epochs")
+    parser.add_argument("--worker-steps", type=int, default=1, help="Number of client steps before agg")
 
     parser.add_argument("-n", type=int, help="Number of workers")
     parser.add_argument("-f", type=int, help="Number of Byzantine workers.")
@@ -104,23 +108,28 @@ def get_args():
     # Quadratic Game
     parser.add_argument("--quadratic", action="store_true", default=False,
                         help="Setup for quadratic games (ignores other setups except args.gan)")
+    parser.add_argument("-qp", "--quadratic-players", type=int, default=2,
+                        help="[HP] num of players")
     parser.add_argument("-qN", "--quadratic-N", type=int, default=1000,
                         help="[HP] num of samples in the quadratic game dataset")
-    parser.add_argument("-qd", "--quadratic-dim", type=int, default=10,
+    parser.add_argument("-qd", "--quadratic-dim", type=int, default=100,
                         help="[HP] dimension of quadratic game")
     parser.add_argument("-qm", "--quadratic-mu", type=float, default=0.,
                         help="[HP] mu-strong convexity of quadratic game")
     parser.add_argument("-qL", "--quadratic-ell", type=float, default=0.,
                         help="[HP] L-smoothness of quadratic game")
+    parser.add_argument("-qs", "--quadratic-sparsity", type=float, default=0.,
+                        help="[HP] sparsity regularization for |x|_1")
     # GAN
     parser.add_argument("--gan", action="store_true", default=False, help="Setup for GAN training (ignores other setups)")
     parser.add_argument("--conditional", action="store_true", default=False, help="Conditional GAN")
     parser.add_argument("--D-iters", type=int, default=1, help="[HP] D iters per G iter")
+    parser.add_argument("--save-model-every", type=int, default=10, help="Save model every this num of epochs")
 
     # Check Computation
     parser.add_argument("-cc", "--num-peers", type=int, default=0, help="[HP] num of peers for checking grad validity")
 
-    args = parser.parse_args()
+    args = parser.parse_args(namespace=namespace)
 
     if args.n <= 0 or args.f < 0 or args.f >= args.n:
         raise RuntimeError(f"n={args.n} f={args.f}")
@@ -275,11 +284,15 @@ def initialize_worker(
                                **kwargs)
     if args.gan:
         worker_opts = dict(worker_id=worker_rank,
+                           worker_steps=args.worker_steps,
                            D_iters=args.D_iters,
                            conditional=args.conditional,
                            **default_worker_opts)
     elif args.quadratic:
-        worker_opts = dict(worker_id=worker_rank, **default_worker_opts)
+        worker_opts = dict(worker_id=worker_rank,
+                           worker_steps=args.worker_steps,
+                           sparsity=args.quadratic_sparsity,
+                           **default_worker_opts)
     else:
         worker_opts = dict(**default_worker_opts)
 
@@ -384,13 +397,25 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         def save_snapshot_hook(trainer, epoch, batch_idx):
 
             def save_snapshot(w):
+                # Do this only for worker 0, since in this implementation
+                # all workers use the same exact model.
+                if w.worker_id != 0:
+                    return
                 if batch_idx % (len(w.data_loader) // w.progress_frames_freq) == 0:
                     frame = w.update_G_progress()
-                    fp = os.path.join(out_dir, f'w{w.worker_id:02d}_epoch{epoch:03d}_batch{batch_idx:04d}.png')
+                    fp = os.path.join(out_dir, f"epoch{epoch:02d}_batch{batch_idx:03d}.png")
+                    if args.debug:
+                        print(f"Saving progress image to to {fp}...")
                     im = Image.fromarray(tensor_to_np(frame))
                     im.save(fp)
-                # Also store progress video for last iter
-                # if epoch == EPOCHS - 1 and batch_idx == len(w.data_loader) - 1:
+                # Save model every `save_model_every` epochs (at the end)
+                if epoch % args.save_model_every == 0 and batch_idx == len(w.data_loader) - 1:
+                    fp = os.path.join(out_dir, f'model_epoch{epoch:02d}.pl')
+                    if args.debug:
+                        print(f"Saving model to {fp}...")
+                    torch.save(w.model.state_dict(), fp)
+                # Also store progress video for last iter XXX: requires ffmpeg, kinda unnecessary
+                # if epoch == EPOCHS and batch_idx == len(w.data_loader) - 1:
                 #     fp = os.path.join(out_dir, f'w{w.worker_id:02d}_progress.mp4')
                 #     make_animation(w.progress_frames, fp)
 
@@ -408,20 +433,20 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
             QUADRATIC_GAME_DATA = generate_quadratic_game_dataset(N=args.quadratic_N,
                                                                   dim=args.quadratic_dim,
                                                                   mu=args.quadratic_mu,
-                                                                  ell=args.quadratic_ell)
+                                                                  ell=args.quadratic_ell,
+                                                                  num_players=args.quadratic_players)
         # LR = 1e-4
         client_lr = args.lr
         server_lr = args.lr
-        model = TwoPlayers(dim=args.quadratic_dim)
+        model = MultiPlayer(num_players=args.quadratic_players, dim=args.quadratic_dim)
         optimizers = [{
-            "player1": torch.optim.SGD([model.player1], lr=client_lr),
-            "player2": torch.optim.SGD([model.player2], lr=client_lr),
+            "players": [torch.optim.SGD([player], lr=client_lr) for player in model.players],
             "all": torch.optim.SGD(model.parameters(), lr=client_lr),
         } for _ in range(args.n)]
         server_opt = torch.optim.SGD(model.parameters(), lr=server_lr)
-        loss_func = quadratic_loss
+        loss_func = get_quadratic_loss(args.quadratic_players)
         post_batch_hooks = []
-        metrics = {"loss1": lambda x: x, "loss2": lambda x: x,}
+        metrics = {}
 
     ### Normal Setup ###
     else:

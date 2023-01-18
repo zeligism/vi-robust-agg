@@ -22,14 +22,46 @@ def random_vector(N, dim):
     return torch.randn(N, dim)
 
 
-def generate_quadratic_game_dataset(N, dim, mu=0., ell=None):
-    A11 = random_matrix(N, dim, mu=mu, ell=ell)
-    A12 = random_matrix(N, dim, mu=mu, ell=ell)
-    A22 = random_matrix(N, dim, mu=mu, ell=ell)
-    a1 = random_vector(N, dim)
-    a2 = random_vector(N, dim)
-    bias = random_vector(N, 1)
-    return [A11, A12, A22, a1, a2, bias]
+def generate_quadratic_game_dataset(N, dim, mu=0., ell=None, num_players=2):
+    if num_players > 2:
+        A = random_matrix(N, dim * num_players, mu=mu, ell=ell)
+        b = random_vector(N, dim * num_players) * 100 / dim**0.5
+        return [A, b]
+    else:
+        A11 = random_matrix(N, dim, mu=mu, ell=ell)
+        A12 = random_matrix(N, dim)
+        A22 = random_matrix(N, dim, mu=mu, ell=ell)
+        b1 = random_vector(N, dim) * 100 / dim**0.5
+        b2 = random_vector(N, dim) * 100 / dim**0.5
+        return [A11, A12, A22, b1, b2]
+
+
+def quadratic_loss_2player(w1, w2, A11, A12, A22, b1, b2):
+    loss = torch.einsum("bij,i,j->b", A12, w1, w2)
+    loss += 0.5 * torch.einsum("bij,i,j->b", A11, w1, w1)
+    loss -= 0.5 * torch.einsum("bij,i,j->b", A22, w2, w2)
+    loss += torch.einsum("bi,i->b", b1, w1)
+    loss -= torch.einsum("bi,i->b", b2, w2)
+    return loss.mean()
+
+
+def quadratic_loss_generalized(players, k, A, b):
+    dim = len(players[0])
+    player1_indices = slice(k * dim, (k + 1) * dim)
+    rhs = b[:, player1_indices]
+    for j in range(len(players)):
+        player2_indices = slice(j * dim, (j + 1) * dim)
+        A_kj = A[:, player1_indices, player2_indices]
+        rhs += torch.einsum("bij,j->bi", A_kj, players[j])
+    loss = torch.einsum("bi,i->b", rhs, players[k])
+    return loss.mean()
+
+
+def get_quadratic_loss(num_players):
+    if num_players > 2:
+        return quadratic_loss_generalized
+    else:
+        return quadratic_loss_2player
 
 
 class QuadraticGameDataset(torch.utils.data.Dataset):
@@ -44,14 +76,12 @@ class QuadraticGameDataset(torch.utils.data.Dataset):
         return [d[index] for d in self.data]
 
 
-class TwoPlayers(nn.Module):
-    def __init__(self, dim=2):
+class MultiPlayer(nn.Module):
+    def __init__(self, num_players=2, dim=2):
         super().__init__()
-        self.dim = dim
-        self.player1 = nn.Parameter(torch.zeros(dim))
-        self.player2 = nn.Parameter(torch.zeros(dim))
-        nn.init.normal_(self.player1, std=1. / dim)
-        nn.init.normal_(self.player2, std=1. / dim)
+        self.players = nn.ParameterList([nn.Parameter(torch.zeros(dim)) for _ in range(num_players)])
+        for player in self.players:
+            nn.init.normal_(player, std=1. / dim)
 
 
 def quadratic_game(

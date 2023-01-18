@@ -50,16 +50,6 @@ def top1_accuracy(output, target):
     return accuracy(output, target, topk=(1,))[0].item()
 
 
-def quadratic_loss(w1, w2, A11, A12, A22, a1, a2, bias):
-    loss = torch.einsum("bij,i,j->b", A11, w1, w1) +\
-        torch.einsum("bij,i,j->b", A12, w1, w2) +\
-        torch.einsum("bij,i,j->b", A22, w2, w2) +\
-        torch.einsum("bi,i->b", a1, w1) +\
-        torch.einsum("bi,i->b", a2, w2) +\
-        bias
-    return loss.mean()
-
-
 def log(*args, **kwargs):
     pass
 

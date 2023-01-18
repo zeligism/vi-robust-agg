@@ -1,4 +1,11 @@
-# python exp_quadratic.py -n 10 -f 0 --agg qopt --quadratic-ell 50 --quadratic-mu 1.
+
+# Example 1:
+# python exp_quadratic.py -n 10 -f 0 --agg avg --lr 2e-4 --epochs 50 \
+#     --quadratic-players 2 --quadratic-dim 100 --quadratic-ell 1000 --quadratic-mu 1. --quadratic-sparsity 0.001
+
+# Example 2:
+# python exp_quadratic.py -n 10 -f 0 --agg avg --lr 1e-3 --epochs 50 \
+#     --quadratic-players 5 --quadratic-dim 20 --quadratic-ell 1000 --quadratic-mu 1. --quadratic-sparsity 0.001
 
 from utils import get_args
 from utils import main
@@ -14,15 +21,10 @@ if args.identifier:
 elif args.debug:
     LOG_DIR += "debug/"
 else:
-    LOG_DIR += f"n{args.n}_f{args.f}_{args.noniid}/"
+    LOG_DIR += f"n{args.n}_f{args.f}/"
 
 INP_DIR = LOG_DIR
 OUT_DIR = LOG_DIR + "output/"
-LOG_DIR += f"{args.agg}_{args.attack}_{args.momentum}_s{args.bucketing}_seed{args.seed}"
+LOG_DIR += f"{args.agg}_{args.attack}_lr{args.lr}_m{args.momentum}_seed{args.seed}"
 
-MAX_BATCHES_PER_EPOCH = 30
-EPOCHS = args.epochs
-# args.lr = 2e-4
-# args.batch_size = 10
-
-main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH)
+main(args, LOG_DIR, args.epochs, args.max_batches_per_epoch)
