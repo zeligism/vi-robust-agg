@@ -56,13 +56,14 @@ for hp_combination in product(*HP_SPACE.values()):
     args_dict = dict(**default_hp, **dict(zip(HP_SPACE.keys(), hp_combination)))
     if args_dict["attack"] == "NA":
         args_dict["f"] = 0
+    if args_dict["attack"] == "LF" and EXP == "quadratic":
+        continue
 
     ### Experiment setup 1 ###
     # sgd + robust aggregator
     args = get_args(namespace=Namespace(**args_dict))
     args.agg = "rfa"
     args.bucketing = 2
-    print(args)
     current_log_dir = log_dir + f"sgd_robust/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
@@ -80,7 +81,6 @@ for hp_combination in product(*HP_SPACE.values()):
         args.momentum = 0.9
     args.agg = "rfa"
     args.bucketing = 2
-    print(args)
     current_log_dir = log_dir + f"adam_robust/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
@@ -93,7 +93,6 @@ for hp_combination in product(*HP_SPACE.values()):
     # sgd + avg aggregator + check of computation
     args = get_args(namespace=Namespace(**args_dict))
     args.num_peers = 1
-    print(args)
     current_log_dir = log_dir + f"sgd_cc/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
@@ -101,8 +100,3 @@ for hp_combination in product(*HP_SPACE.values()):
         main(args, current_log_dir, args.epochs, 10**10)
     else:
         print(f"Experiment {current_log_dir} already exists.")
-
-    exit()
-
-# TODO: check args, rfa is used with CC!
-# TODO: LF does not work with quadratic!
