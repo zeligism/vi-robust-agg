@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=virobagg-q
-#SBATCH -q cpu
+#SBATCH -q cpu-4
 #SBATCH --cpus-per-task=1
 #SBATCH --ntasks=4
 #SBATCH --time=12:00:00

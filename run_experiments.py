@@ -52,17 +52,17 @@ default_hp = GAN_DEFAULT_HP if EXP == "gan" else QUADRATIC_DEFAULT_HP
 # Give other jobs a chance to avoid conflicts in file creation
 time.sleep(3 * random())
 
-for hyperparams in product(*HP_SPACE.values()):
-    hyperparams_dict = dict(zip(HP_SPACE.keys(), hyperparams))
-    namespace = Namespace(**default_hp, **hyperparams_dict)
+for hp_combination in product(*HP_SPACE.values()):
+    args_dict = dict(**default_hp, **dict(zip(HP_SPACE.keys(), hp_combination)))
+    if args_dict["attack"] == "NA":
+        args_dict["f"] = 0
 
     ### Experiment setup 1 ###
     # sgd + robust aggregator
-    args = get_args(namespace=namespace)
-    if args.attack == "NA":
-        args.f = 0
+    args = get_args(namespace=Namespace(**args_dict))
     args.agg = "rfa"
     args.bucketing = 2
+    print(args)
     current_log_dir = log_dir + f"sgd_robust/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
@@ -73,15 +73,14 @@ for hyperparams in product(*HP_SPACE.values()):
 
     ### Experiment setup 2 ###
     # momentum/adam worker + robust aggregator
-    args = get_args(namespace=namespace)
-    if args.attack == "NA":
-        args.f = 0
+    args = get_args(namespace=Namespace(**args_dict))
     if EXP == "gan":
         args.betas = (0.5, 0.9)
     else:
         args.momentum = 0.9
     args.agg = "rfa"
     args.bucketing = 2
+    print(args)
     current_log_dir = log_dir + f"adam_robust/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
@@ -92,10 +91,9 @@ for hyperparams in product(*HP_SPACE.values()):
 
     ### Experiment setup 3 ###
     # sgd + avg aggregator + check of computation
-    args = get_args(namespace=namespace)
-    if args.attack == "NA":
-        args.f = 0
+    args = get_args(namespace=Namespace(**args_dict))
     args.num_peers = 1
+    print(args)
     current_log_dir = log_dir + f"sgd_cc/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
@@ -104,3 +102,7 @@ for hyperparams in product(*HP_SPACE.values()):
     else:
         print(f"Experiment {current_log_dir} already exists.")
 
+    exit()
+
+# TODO: check args, rfa is used with CC!
+# TODO: LF does not work with quadratic!
