@@ -408,7 +408,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
                         print(f"Saving progress image to to {fp}...")
                     im = Image.fromarray(tensor_to_np(frame))
                     im.save(fp)
-                # Save model every `save_model_every` epochs (at the end)
+                # Save model every `save_model_every` epochs
                 if epoch % args.save_model_every == 0 and batch_idx == len(w.data_loader) - 1:
                     fp = os.path.join(out_dir, f'model_epoch{epoch:02d}.pl')
                     if args.debug:
