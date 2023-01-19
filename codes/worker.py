@@ -472,7 +472,7 @@ class QuadraticGameWorker(TorchWorker):
 
         self.running["data"] = data
         results["length"] = data[0].size(0)
-        results["loss"] = torch.stack(losses).mean()
+        results["loss"] = torch.stack(losses).mean().item()
         results["metrics"] = {}
 
         # Update worker's gradient
