@@ -107,6 +107,8 @@ class TorchWorker(object):
         for group in self.optimizer.param_groups:
             for p in group["params"]:
                 param_state = self.state[p]
+                if p.grad is None:
+                    continue
                 layer_gradients.append(param_state["saved_grad"].data.view(-1))
         return torch.cat(layer_gradients)
 
