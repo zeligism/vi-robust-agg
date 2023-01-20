@@ -41,7 +41,7 @@ QUADRATIC_DEFAULT_HP = {
 HP_SPACE = {
     "seed": range(3),
     "attack": ["NA", "BF", "LF", "IPM", "ALIE"],
-    "worker_steps": [1, 100],
+    "worker_steps": [1, 12],
 }
 
 # Load experiment name automatically, argparser will handle the rest

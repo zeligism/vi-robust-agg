@@ -382,6 +382,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
             "all": torch.optim.SGD(model.parameters(), lr=client_lr),
         } for _ in range(args.n)]
         server_opt = torch.optim.SGD(model.parameters(), lr=server_lr)
+
         # betas = (0.5, 0.9)
         # optimizers = [{
         #     "D": torch.optim.Adam(model.D.parameters(), lr=client_lr * 2, betas=betas),
@@ -389,6 +390,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         #     "all": torch.optim.Adam(model.parameters(), lr=client_lr),
         # } for _ in range(args.n)]
         # server_opt = torch.optim.Adam(model.parameters(), lr=server_lr, betas=betas)
+
         loss_func = get_GAN_loss_func()
         # Save GAN snapshots to track progress
         out_dir = os.path.join(LOG_DIR, "gan_output")
@@ -409,7 +411,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
                     im = Image.fromarray(tensor_to_np(frame))
                     im.save(fp)
                 # Save model every `save_model_every` epochs
-                if epoch % args.save_model_every == 0 and batch_idx == len(w.data_loader) - 1:
+                if epoch % args.save_model_every == 0 and batch_idx == 0:
                     fp = os.path.join(out_dir, f'model_epoch{epoch:02d}.pl')
                     if args.debug:
                         print(f"Saving model to {fp}...")
