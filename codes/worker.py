@@ -235,6 +235,7 @@ class GANWorker(TorchWorker):
         self.progress_frames_freq = 4  # per epoch, better if = multiple of 2
         self.progress_frames_maxlen = 200
         self.num_iters = 0
+        self.raise_stopiter_later = False
 
     def __str__(self) -> str:
         return f"GANWorker [{self.worker_id}]"
@@ -252,10 +253,55 @@ class GANWorker(TorchWorker):
         super()._set_model_state(state)
         self.num_iters = state['num_iters']
 
+    def _sample_data(self, recompute_state={}):
+        if recompute_state:
+            data = recompute_state['data'].pop(0)
+        else:
+            data = self.running["train_loader_iterator"].__next__()
+            self.prev_state['data'].append([d.detach() for d in data])
+        data = [d.to(self.device) for d in data]
+        return data
+
+    def _compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
+        D_metrics = {}
+        G_metrics = {}
+        for _ in range(self.worker_steps):
+            if (self.num_iters + 1) % (self.D_iters + 1) > 0:
+                ### Train discriminator ###
+                data, target = self._sample_data(recompute_state)
+                length = len(target)
+                D_metrics = self.compute_D_grad(data, target if self.conditional else None)
+                self.D_optimizer.step()
+            else:
+                ### Train generator every `D_iters` ###
+                data, target = None, None
+                length = self.batch_size
+                G_metrics = self.compute_G_grad()
+                self.G_optimizer.step()
+            # Update stats
+            self.num_iters += 1
+            self.running["data"] = data
+            self.running["target"] = target
+            self.results["length"] = length
+            self.results["loss"] = 0.0
+            self.results["metrics"] = dict(**D_metrics, **G_metrics)
+            for metric in self.METRICS:
+                if metric not in self.results["metrics"]:
+                    self.results["metrics"][metric] = 0.0
+
+    def train_epoch_start(self) -> None:
+        super().train_epoch_start()
+        self.raise_stopiter_later = False
+
     def compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
-        """recompute_state works only for SGD.
         """
-        results = {}
+        Note 1: Recompute_state works only for SGD.
+        Note 2: Some StopIteration acrobatics was done in order to achieve
+                multi-local steps without changing the original simulator.
+        """
+        if self.raise_stopiter_later:
+            self.raise_stopiter_later = False
+            raise StopIteration
 
         # cache batch size
         if self.batch_size is None:
@@ -268,52 +314,25 @@ class GANWorker(TorchWorker):
         if recompute_state:
             self._set_model_state(recompute_state)
 
-        def sample_data():
-            if recompute_state:
-                data, target = recompute_state['data'].pop(0)
-            else:
-                data, target = self.running["train_loader_iterator"].__next__()
-                self.prev_state['data'].append((data, target))
-            data, target = data.to(self.device), target.to(self.device)
-            return data, target
-
-        # Train
-        self._cache_old_params()
-        D_metrics = {}
-        G_metrics = {}
-        for _ in range(self.worker_steps):
-            if (self.num_iters + 1) % (self.D_iters + 1) > 0:
-                ### Train discriminator ###
-                data, target = sample_data()
-                length = len(target)
-                D_metrics = self.compute_D_grad(data, target if self.conditional else None)
-                self.D_optimizer.step()
-            else:
-                ### Train generator every `D_iters` ###
-                data, target = None, None
-                length = self.batch_size
-                G_metrics = self.compute_G_grad()
-                self.G_optimizer.step()
-            self.num_iters += 1
-
-        # Update stats
-        self.running["data"] = data
-        self.running["target"] = target
-        results["length"] = length
-        results["loss"] = 0.0
-        results["metrics"] = dict(**D_metrics, **G_metrics)
-        for metric in self.METRICS:
-            if metric not in results["metrics"]:
-                results["metrics"][metric] = 0.0
-
         # Update worker's gradient
+        self._cache_old_params()
+        try:
+            self.results = {}
+            self._compute_gradient(recompute_state)
+        except StopIteration:
+            # always raise stopiters if results are empty,
+            # otherwise raise later in order to compute this step.
+            if not self.results:
+                raise StopIteration
+            else:
+                self.raise_stopiter_later = True
         self._set_delta_as_grad()
         self._save_grad()
         # reset to previous state when done recomputing
         if recompute_state:
             self._set_model_state(self.prev_state)
 
-        return results
+        return self.results
 
     ########################################################################
     # The following are GAN-specific methods.
@@ -414,6 +433,7 @@ class QuadraticGameWorker(TorchWorker):
                  sparsity=0.,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.batch_size = None
         self.worker_id = worker_id
         self.worker_steps = min(worker_steps, len(self.data_loader))
         self.sparsity = sparsity
@@ -433,31 +453,19 @@ class QuadraticGameWorker(TorchWorker):
         super()._set_model_state(state)
         self.num_iters = state['num_iters']
 
-    def compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
-        """recompute_state works only for SGD.
-        """
-        results = {}
-
-        # reset prev state if not given fixed state
-        self.prev_state = self._get_model_state()
-        self.prev_state["data"] = []
+    def _sample_data(self, recompute_state={}):
         if recompute_state:
-            self._set_model_state(recompute_state)
+            data = recompute_state['data'].pop(0)
+        else:
+            data = self.running["train_loader_iterator"].__next__()
+            self.prev_state['data'].append([d.detach() for d in data])
+        data = [d.to(self.device) for d in data]
+        return data
 
-        def sample_data():
-            if recompute_state:
-                data = recompute_state['data'].pop(0)
-            else:
-                data = self.running["train_loader_iterator"].__next__()
-                self.prev_state['data'].append(data)
-            data = [d.to(self.device) for d in data]
-            return data
-
-        # Train
-        self._cache_old_params()
+    def _compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
         losses = []
         for _ in range(self.worker_steps):
-            data = sample_data()
+            data = self._sample_data(recompute_state)
             turn = self.num_iters % len(self.model.players)
             if len(self.model.players) > 2:
                 loss = self.loss_func(self.model.players, turn, *data)
@@ -471,20 +479,55 @@ class QuadraticGameWorker(TorchWorker):
             self.optimizers[turn].step()
             losses.append(loss)
             self.num_iters += 1
+            self.running["data"] = data
+            self.results["length"] = data[0].size(0)
+            self.results["loss"] = torch.stack(losses).mean().item()
+            self.results["metrics"] = {}
 
-        self.running["data"] = data
-        results["length"] = data[0].size(0)
-        results["loss"] = torch.stack(losses).mean().item()
-        results["metrics"] = {}
+    def train_epoch_start(self) -> None:
+        super().train_epoch_start()
+        self.raise_stopiter_later = False
+
+    def compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
+        """
+        Note 1: Recompute_state works only for SGD.
+        Note 2: Some StopIteration acrobatics was done in order to achieve
+                multi-local steps without changing the original simulator.
+        """
+        if self.raise_stopiter_later:
+            self.raise_stopiter_later = False
+            raise StopIteration
+
+        # cache batch size
+        if self.batch_size is None:
+            data, target = self.running["train_loader_iterator"].__next__()
+            self.batch_size = data.shape[0]
+
+        # reset prev state if not given fixed state
+        self.prev_state = self._get_model_state()
+        self.prev_state["data"] = []
+        if recompute_state:
+            self._set_model_state(recompute_state)
 
         # Update worker's gradient
+        self._cache_old_params()
+        try:
+            self.results = {}
+            self._compute_gradient(recompute_state)
+        except StopIteration:
+            # always raise stopiters if results are empty,
+            # otherwise raise later in order to compute this step.
+            if not self.results:
+                raise StopIteration
+            else:
+                self.raise_stopiter_later = True
         self._set_delta_as_grad()
         self._save_grad()
         # reset to previous state when done recomputing
         if recompute_state:
             self._set_model_state(self.prev_state)
 
-        return results
+        return self.results
 
 
 class QuadraticGameMomentumWorker(QuadraticGameWorker, MomentumWorker):

@@ -315,7 +315,7 @@ class ParallelTrainerCC(ParallelTrainer):
         """
         super().__init__(*args, **kwargs)
         self.num_peers = num_peers
-        self.tolerance = 0.05
+        self.tolerance = 0.5
         self.banned = set()
         print("--- Check of Computation ---")
 
@@ -354,8 +354,8 @@ class ParallelTrainerCC(ParallelTrainer):
                 target_grad = gradients[target]
                 self.workers[validator].compute_gradient(recompute_state=prev_target_state)
                 target_grad_by_validator = self.workers[validator].get_gradient()
-                mismatch = torch.linalg.vector_norm(target_grad - target_grad_by_validator, ord=1).item()
-                rel_error = mismatch / torch.linalg.vector_norm(target_grad, ord=1).item()
+                mismatch = torch.linalg.vector_norm(target_grad - target_grad_by_validator, ord=2).item()
+                rel_error = mismatch / torch.linalg.vector_norm(target_grad, ord=2).item()
                 if rel_error > self.tolerance:
                     self.banned.add(validator)
                     self.banned.add(target)
@@ -368,5 +368,3 @@ class ParallelTrainerCC(ParallelTrainer):
         # Assume that the model and optimizers are shared among workers.
         self.server.set_gradient(aggregated)
         self.server.apply_gradient()
-
-

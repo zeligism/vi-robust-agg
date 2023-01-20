@@ -1,11 +1,16 @@
 
 # Example 1:
-# python exp_quadratic.py -n 10 -f 0 --agg avg --lr 2e-4 --epochs 50 \
+# python run_quadratic.py -n 10 -f 0 --agg avg --lr 2e-4 --epochs 50 \
 #     --quadratic-players 2 --quadratic-dim 100 --quadratic-ell 1000 --quadratic-mu 1. --quadratic-sparsity 0.001
 
 # Example 2:
-# python exp_quadratic.py -n 10 -f 0 --agg avg --lr 1e-3 --epochs 50 \
+# python run_quadratic.py -n 10 -f 0 --agg avg --lr 1e-3 --epochs 50 \
 #     --quadratic-players 5 --quadratic-dim 20 --quadratic-ell 1000 --quadratic-mu 1. --quadratic-sparsity 0.001
+
+# Example 3:
+# python run_quadratic.py -n 10 -f 2 --attack ALIE --agg avg --lr 1e-3 --epochs 50 \
+#     --quadratic-players 5 --quadratic-dim 20 --quadratic-N 1000 --quadratic-ell 1000 \
+#     --quadratic-mu 1. --quadratic-sparsity 0.001 --worker-steps 100 --num-peers 1
 
 from utils import get_args
 from utils import main
