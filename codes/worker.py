@@ -221,10 +221,10 @@ class GANWorker(TorchWorker):
                  D_iters: int = 3,
                  conditional: bool = False,
                  *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.batch_size = None
         self.worker_id = worker_id
-        self.worker_steps = worker_steps
-        super().__init__(*args, **kwargs)
+        self.worker_steps = min(worker_steps, len(self.data_loader))
         self.D_iters = D_iters
         self.conditional = conditional
         self.D_optimizer = self.optimizer["D"]
@@ -328,7 +328,9 @@ class GANWorker(TorchWorker):
     @torch.no_grad()
     def update_G_progress(self):
         label = self.fixed_y if self.conditional else None
+        self.model.G.eval()
         fake_x = self.model.G(self.fixed_latent, cond=label)
+        self.model.G.train()
         im_grid = torch.cat([self.fixed_x, fake_x], dim=0)
         im_grid = 0.5 * im_grid + 0.5  # inv_normalize to [0,1]
         grid = make_grid(im_grid, nrow=8, padding=2).cpu()
@@ -411,9 +413,9 @@ class QuadraticGameWorker(TorchWorker):
                  worker_steps=1,
                  sparsity=0.,
                  *args, **kwargs):
-        self.worker_id = worker_id
-        self.worker_steps = worker_steps
         super().__init__(*args, **kwargs)
+        self.worker_id = worker_id
+        self.worker_steps = min(worker_steps, len(self.data_loader))
         self.sparsity = sparsity
         self.optimizers = self.optimizer["players"]
         self.optimizer = self.optimizer["all"]  # dummy optimizer for passing grads
