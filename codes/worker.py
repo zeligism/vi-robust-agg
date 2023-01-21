@@ -238,7 +238,7 @@ class GANWorker(TorchWorker):
         self.optimizer = self.optimizer_dict["all"]  # dummy optimizer for passing grads
         self.init_fixed_sample()
         self.progress_frames = []
-        self.progress_frames_freq = 100  # per epoch, better if = multiple of 2
+        self.progress_frames_freq = 8  # per epoch, better if = multiple of 2
         self.progress_frames_maxlen = 200
         self.num_iters = 0
         self.raise_stopiter_later = False
