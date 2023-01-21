@@ -17,8 +17,8 @@ from utils import EXP_DIR
 # Default hyperparameters for both experiments
 GAN_DEFAULT_HP = {
     "epochs": 20,
-    "batch_size": 128,
-    "lr": 2e-4,
+    "batch_size": 32,
+    "lr": 4e-4,
     "n": 20,
     "f": 4,
     "D_iters": 3,
@@ -27,12 +27,12 @@ GAN_DEFAULT_HP = {
 QUADRATIC_DEFAULT_HP = {
     "epochs": 50,
     "batch_size": 16,
-    "lr": 2e-4,
+    "lr": 1e-3,
     "n": 20,
     "f": 4,
-    "quadratic_players": 5,
+    "quadratic_players": 2,
     "quadratic_N": 1000,
-    "quadratic_dim": 20,
+    "quadratic_dim": 100,
     "quadratic_mu": 1.,
     "quadratic_ell": 1000.,
 }
@@ -41,7 +41,7 @@ QUADRATIC_DEFAULT_HP = {
 HP_SPACE = {
     "seed": range(3),
     "attack": ["NA", "BF", "LF", "IPM", "ALIE"],
-    "worker_steps": [1, 12],
+    "worker_steps": [1, 20],
 }
 
 # Load experiment name automatically, argparser will handle the rest
