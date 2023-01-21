@@ -311,8 +311,8 @@ class GANWorker(TorchWorker):
 
         # cache batch size
         if self.batch_size is None:
-            data, target = self.running["train_loader_iterator"].__next__()
-            self.batch_size = data.shape[0]
+            data = self.running["train_loader_iterator"].__next__()
+            self.batch_size = data[0].shape[0]
 
         # reset prev state if not given fixed state
         self.prev_state = self._get_model_state()
@@ -507,8 +507,8 @@ class QuadraticGameWorker(TorchWorker):
 
         # cache batch size
         if self.batch_size is None:
-            data, target = self.running["train_loader_iterator"].__next__()
-            self.batch_size = data.shape[0]
+            data = self.running["train_loader_iterator"].__next__()
+            self.batch_size = data[0].shape[0]
 
         # reset prev state if not given fixed state
         self.prev_state = self._get_model_state()
