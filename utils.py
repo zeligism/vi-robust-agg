@@ -392,7 +392,8 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
 
         optimizers = [None] * args.n
         use_constructor = True
-        server_opt = torch.optim.SGD(model.parameters(), lr=server_lr)
+        # server_opt = torch.optim.SGD(model.parameters(), lr=server_lr)
+        server_opt = torch.optim.Adam(model.parameters(), lr=server_lr, beta=(0.5, 0.9))
 
         # betas = (0.5, 0.9)
         # optimizers = [{
