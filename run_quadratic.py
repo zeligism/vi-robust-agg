@@ -19,7 +19,7 @@ from utils import EXP_DIR
 args = get_args()
 args.quadratic = True
 
-LOG_DIR = EXP_DIR + "exp_quadratic/"
+LOG_DIR = EXP_DIR + "run_quadratic/"
 
 if args.identifier:
     LOG_DIR += f"{args.identifier}/"

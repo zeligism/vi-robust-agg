@@ -21,7 +21,7 @@ GAN_DEFAULT_HP = {
     "lr": 4e-4,
     "n": 20,
     "f": 4,
-    "D_iters": 3,
+    "D_iters": 5,
 }
 
 QUADRATIC_DEFAULT_HP = {
@@ -41,7 +41,7 @@ QUADRATIC_DEFAULT_HP = {
 HP_SPACE = {
     "seed": range(1),  #range(3),
     "attack": ["NA", "BF", "LF", "IPM", "ALIE"],
-    "worker_steps": [1, 20],
+    "worker_steps": [1000],
 }
 
 # Load experiment name automatically, argparser will handle the rest

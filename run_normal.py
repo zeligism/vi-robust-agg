@@ -5,7 +5,7 @@ from utils import EXP_DIR
 
 args = get_args()
 
-LOG_DIR = EXP_DIR + "exp_normal/"
+LOG_DIR = EXP_DIR + "run_normal/"
 
 if args.identifier:
     LOG_DIR += f"{args.identifier}/"

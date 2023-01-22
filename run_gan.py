@@ -9,7 +9,7 @@ from utils import EXP_DIR
 args = get_args()
 args.gan = True
 
-LOG_DIR = EXP_DIR + "exp_gan/"
+LOG_DIR = EXP_DIR + "run_gan/"
 
 if args.identifier:
     LOG_DIR += f"{args.identifier}/"
