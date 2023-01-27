@@ -226,7 +226,7 @@ class GANWorker(TorchWorker):
             self.model = self.model()
         self.batch_size = None
         self.worker_id = worker_id
-        self.worker_steps = min(worker_steps, len(self.data_loader))
+        self.worker_steps = min(worker_steps, len(self.data_loader) // 2 - 1)
         self.D_iters = D_iters
         self.conditional = conditional
         if callable(self.optimizer):
@@ -238,7 +238,7 @@ class GANWorker(TorchWorker):
         self.optimizer = self.optimizer_dict["all"]  # dummy optimizer for passing grads
         self.init_fixed_sample()
         self.progress_frames = []
-        self.progress_frames_freq = 8  # per epoch, better if = multiple of 2
+        self.progress_frames_freq = 4  # per epoch, better if = multiple of 2
         self.progress_frames_maxlen = 200
         self.num_iters = 0
         self.raise_stopiter_later = False
