@@ -16,12 +16,12 @@ from utils import EXP_DIR
 
 # Default hyperparameters for both experiments
 GAN_DEFAULT_HP = {
-    "epochs": 30,
+    "epochs": 100,
     "batch_size": 32,
-    "lr": 4e-4,
-    "n": 20,
-    "f": 4,
-    "D_iters": 5,
+    "lr": 2e-4,
+    "n": 10,
+    "f": 2,
+    "D_iters": 3,
 }
 
 QUADRATIC_DEFAULT_HP = {

@@ -385,12 +385,12 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
 
         def init_optimizer(local_model):
             return {
-                "D": torch.optim.SGD(local_model.D.parameters(), lr=client_lr * 2),
-                "G": torch.optim.SGD(local_model.G.parameters(), lr=client_lr),
-                "all": torch.optim.SGD(local_model.parameters(), lr=client_lr),
-                # "D": torch.optim.Adam(local_model.D.parameters(), lr=client_lr * 2, betas=(0.5, 0.9)),
-                # "G": torch.optim.Adam(local_model.G.parameters(), lr=client_lr, betas=(0.5, 0.9)),
-                # "all": torch.optim.Adam(local_model.parameters(), lr=client_lr, betas=(0.5, 0.9)),
+                # "D": torch.optim.SGD(local_model.D.parameters(), lr=client_lr * 2),
+                # "G": torch.optim.SGD(local_model.G.parameters(), lr=client_lr),
+                # "all": torch.optim.SGD(local_model.parameters(), lr=client_lr),
+                "D": torch.optim.Adam(local_model.D.parameters(), lr=client_lr * 2, betas=(0.5, 0.9)),
+                "G": torch.optim.Adam(local_model.G.parameters(), lr=client_lr, betas=(0.5, 0.9)),
+                "all": torch.optim.Adam(local_model.parameters(), lr=client_lr, betas=(0.5, 0.9)),
             }
 
         optimizers = [None] * args.n
