@@ -1,4 +1,7 @@
 
+# Example:
+# python run_normal.py -n 10 -f 3 --attack LF --agg qopt --noniid --momentum 0.9
+
 from utils import get_args
 from utils import main
 from utils import EXP_DIR

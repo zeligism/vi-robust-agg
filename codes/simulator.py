@@ -94,6 +94,7 @@ class ParallelTrainer(DistributedSimulatorBase):
                 param.copy_(global_param.clone().detach())
 
         progress = 0
+        self.parallel_call(resync_params)
         for batch_idx in range(self.max_batches_per_epoch):
             try:
                 self._run_pre_batch_hooks(epoch, batch_idx)
@@ -367,7 +368,8 @@ class ParallelTrainerCC(ParallelTrainer):
                 self.workers[validator].compute_gradient(recompute_state=prev_target_state)
                 target_grad_by_validator = self.workers[validator].get_gradient()
                 mismatch = torch.linalg.vector_norm(target_grad - target_grad_by_validator, ord=2).item()
-                rel_error = mismatch / torch.linalg.vector_norm(target_grad, ord=2).item()
+                norm = torch.linalg.vector_norm(target_grad, ord=2).item()
+                rel_error = float('inf') if norm == 0 else mismatch / norm
                 if rel_error > self.tolerance:
                     self.banned.add(validator)
                     self.banned.add(target)
