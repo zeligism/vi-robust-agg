@@ -33,6 +33,10 @@ class TorchWorker(object):
         self.running = {}
         self.metrics = {}
         self.state = defaultdict(dict)
+        for p in self.model.parameters():
+            self.state[p]["resync"] = True
+        for p in self.model.G.parameters():
+            self.state[p]["resync"] = False
 
     def add_metric(
         self,
@@ -226,7 +230,7 @@ class GANWorker(TorchWorker):
             self.model = self.model()
         self.batch_size = None
         self.worker_id = worker_id
-        self.worker_steps = min(worker_steps, len(self.data_loader) // 2 - 1)
+        self.worker_steps = min(worker_steps, len(self.data_loader) - 1)
         self.D_iters = D_iters
         self.conditional = conditional
         if callable(self.optimizer):

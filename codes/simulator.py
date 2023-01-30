@@ -91,7 +91,8 @@ class ParallelTrainer(DistributedSimulatorBase):
         def resync_params(w):
             for param, global_param in zip(
                     w.model.parameters(), self.server.model.parameters()):
-                param.copy_(global_param.clone().detach())
+                if w.state[param]["resync"]:
+                    param.copy_(global_param.clone().detach())
 
         progress = 0
         self.parallel_call(resync_params)
