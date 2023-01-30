@@ -33,10 +33,6 @@ class TorchWorker(object):
         self.running = {}
         self.metrics = {}
         self.state = defaultdict(dict)
-        for p in self.model.parameters():
-            self.state[p]["resync"] = True
-        for p in self.model.G.parameters():
-            self.state[p]["resync"] = False
 
     def add_metric(
         self,
@@ -246,6 +242,11 @@ class GANWorker(TorchWorker):
         self.progress_frames_maxlen = 200
         self.num_iters = 0
         self.raise_stopiter_later = False
+
+        for p in self.model.parameters():
+            self.state[p]["resync"] = True
+        for p in self.model.G.parameters():
+            self.state[p]["resync"] = False
 
     def __str__(self) -> str:
         return f"GANWorker [{self.worker_id}]"
