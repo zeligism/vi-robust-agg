@@ -245,8 +245,6 @@ class GANWorker(TorchWorker):
 
         for p in self.model.parameters():
             self.state[p]["resync"] = True
-        #for p in self.model.D.parameters():
-        #    self.state[p]["resync"] = False
 
     def __str__(self) -> str:
         return f"GANWorker [{self.worker_id}]"
