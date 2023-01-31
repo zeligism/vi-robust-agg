@@ -548,11 +548,6 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
     ### Run ###
     if not args.dry_run:
         for epoch in range(1, EPOCHS + 1):
-            # warmup
-            if epoch < 30:
-                trainer.parallel_call(lambda w: setattr(w, "worker_steps", len(w.data_loader) - 1))
-            else:
-                trainer.parallel_call(lambda w: setattr(w, "worker_steps", min(args.worker_steps, len(w.data_loader) - 1)))
             trainer.train(epoch)
             if not args.gan:
                 evaluator.evaluate(epoch)
