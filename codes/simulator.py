@@ -76,12 +76,28 @@ class ParallelTrainer(DistributedSimulatorBase):
             omniscient_attacker_callback()
 
         gradients = self.parallel_get(lambda w: w.get_gradient())
-
         aggregated = self.aggregator(gradients)
 
         # Assume that the model and optimizers are shared among workers.
         self.server.set_gradient(aggregated)
         self.server.apply_gradient()
+
+        # update workers' momentum
+        aggregated_sq = self.aggregator([g**2 for g in gradients])
+
+        @torch.no_grad()
+        def set_aggregate_momentum(w):
+            i = 0
+            for param in zip(w.model.parameters()):
+                param_state = w.state[param]
+                if "momentum_buffer" not in param_state:
+                    continue
+                j = i + param.numel()
+                param_state["momentum_buffer"].copy_(aggregated[i::j])
+                param_state["momentumsq_buffer"].copy_(aggregated_sq[i::j])
+                i = j
+
+        self.parallel_call(set_aggregate_momentum)
 
     def train(self, epoch):
         self.debug_logger.info(f"Train epoch {epoch}")
