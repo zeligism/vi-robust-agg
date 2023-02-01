@@ -365,23 +365,38 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    use_constructor = False
 
     ### GAN Setup ###
     if args.gan:
         client_lr = args.lr
         server_lr = args.lr
-        if args.conditional:
-            model = ConditionalResNetGAN().to(device)
-        else:
-            model = ResNetGAN().to(device)
-        print("D num of params:", sum(p.numel() for p in model.D.parameters()))
-        print("G num of params:", sum(p.numel() for p in model.G.parameters()))
-        optimizers = [{
-            "D": torch.optim.SGD(model.D.parameters(), lr=client_lr * 2),
-            "G": torch.optim.SGD(model.G.parameters(), lr=client_lr),
-            "all": torch.optim.SGD(model.parameters(), lr=client_lr),
-        } for _ in range(args.n)]
-        server_opt = torch.optim.SGD(model.parameters(), lr=server_lr)
+
+        def init_model():
+            if args.conditional:
+                return ConditionalResNetGAN().to(device)
+            else:
+                return ResNetGAN().to(device)
+
+        model = init_model()
+
+        # print("D num of params:", sum(p.numel() for p in model.D.parameters()))
+        # print("G num of params:", sum(p.numel() for p in model.G.parameters()))
+
+        def init_optimizer(local_model):
+            return {
+                # "D": torch.optim.SGD(local_model.D.parameters(), lr=client_lr * 2),
+                # "G": torch.optim.SGD(local_model.G.parameters(), lr=client_lr),
+                # "all": torch.optim.SGD(local_model.parameters(), lr=client_lr),
+                "D": torch.optim.Adam(local_model.D.parameters(), lr=client_lr * 2, betas=(0.5, 0.9)),
+                "G": torch.optim.Adam(local_model.G.parameters(), lr=client_lr, betas=(0.5, 0.9)),
+                "all": torch.optim.Adam(local_model.parameters(), lr=client_lr, betas=(0.5, 0.9)),
+            }
+
+        optimizers = [None] * args.n
+        use_constructor = True
+        # server_opt = torch.optim.SGD(model.parameters(), lr=server_lr)
+        server_opt = torch.optim.Adam(model.parameters(), lr=server_lr, betas=(0.5, 0.9))
 
         # betas = (0.5, 0.9)
         # optimizers = [{
@@ -461,7 +476,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         loss_func = F.nll_loss
 
     ### Server ###
-    server = TorchServer(optimizer=server_opt)
+    server = TorchServer(optimizer=server_opt, model=model)
     if args.num_peers == 0:
         Trainer = ParallelTrainer
         trainer_kwargs = {}
@@ -522,8 +537,8 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
             args,
             trainer,
             worker_rank,
-            model=model,
-            optimizer=optimizers[worker_rank],
+            model=init_model if use_constructor else model,
+            optimizer=init_optimizer if use_constructor else optimizers[worker_rank],
             loss_func=loss_func,
             device=device,
             kwargs={},

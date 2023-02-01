@@ -27,18 +27,19 @@ GAN_DEFAULT_HP = {
 QUADRATIC_DEFAULT_HP = {
     "epochs": 50,
     "batch_size": 16,
-    "lr": 2e-4,
+    "lr": 1e-3,
     "n": 20,
     "f": 4,
-    "quadratic_players": 5,
+    "quadratic_players": 2,
     "quadratic_N": 1000,
-    "quadratic_dim": 20,
+    "quadratic_dim": 100,
     "quadratic_mu": 1.,
     "quadratic_ell": 1000.,
 }
 
 # Hyperparameters search space
 HP_SPACE = {
+<<<<<<< HEAD
     "seed": range(1),
     "attack": ["NA", "IPM", "ALIE"],
     "worker_steps": [120],

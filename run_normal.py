@@ -1,11 +1,14 @@
 
+# Example:
+# python run_normal.py -n 10 -f 3 --attack LF --agg qopt --noniid --momentum 0.9
+
 from utils import get_args
 from utils import main
 from utils import EXP_DIR
 
 args = get_args()
 
-LOG_DIR = EXP_DIR + "exp_normal/"
+LOG_DIR = EXP_DIR + "run_normal/"
 
 if args.identifier:
     LOG_DIR += f"{args.identifier}/"

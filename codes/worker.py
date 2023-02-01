@@ -125,9 +125,9 @@ class TorchWorker(object):
             for p in group["params"]:
                 param_state = self.state[p]
                 if p.grad is None:
-                    continue
+                    p.grad = torch.empty_like(p)
                 delta = (param_state["old"] - p) / group['lr']
-                p.copy_(param_state["old"])
+                # p.copy_(param_state["old"])  # XXX
                 p.grad.copy_(delta)
                 param_state['grad'] = p.grad.detach().clone()
 
@@ -222,20 +222,29 @@ class GANWorker(TorchWorker):
                  conditional: bool = False,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if callable(self.model):
+            self.model = self.model()
         self.batch_size = None
         self.worker_id = worker_id
-        self.worker_steps = min(worker_steps, len(self.data_loader))
+        self.worker_steps = min(worker_steps, len(self.data_loader) - 1)
         self.D_iters = D_iters
         self.conditional = conditional
-        self.D_optimizer = self.optimizer["D"]
-        self.G_optimizer = self.optimizer["G"]
-        self.optimizer = self.optimizer["all"]  # dummy optimizer for passing grads
+        if callable(self.optimizer):
+            self.optimizer_dict = self.optimizer(self.model)
+        else:
+            self.optimizer_dict = self.optimizer
+        self.D_optimizer = self.optimizer_dict["D"]
+        self.G_optimizer = self.optimizer_dict["G"]
+        self.optimizer = self.optimizer_dict["all"]  # dummy optimizer for passing grads
         self.init_fixed_sample()
         self.progress_frames = []
         self.progress_frames_freq = 4  # per epoch, better if = multiple of 2
         self.progress_frames_maxlen = 200
         self.num_iters = 0
         self.raise_stopiter_later = False
+
+        for p in self.model.parameters():
+            self.state[p]["resync"] = True
 
     def __str__(self) -> str:
         return f"GANWorker [{self.worker_id}]"
@@ -305,8 +314,8 @@ class GANWorker(TorchWorker):
 
         # cache batch size
         if self.batch_size is None:
-            data, target = self.running["train_loader_iterator"].__next__()
-            self.batch_size = data.shape[0]
+            data = self.running["train_loader_iterator"].__next__()
+            self.batch_size = data[0].shape[0]
 
         # reset prev state if not given fixed state
         self.prev_state = self._get_model_state()
@@ -322,6 +331,7 @@ class GANWorker(TorchWorker):
         except StopIteration:
             # always raise stopiters if results are empty,
             # otherwise raise later in order to compute this step.
+            # note that this will never happen with `recompute_state`.
             if not self.results:
                 raise StopIteration
             else:
@@ -500,8 +510,8 @@ class QuadraticGameWorker(TorchWorker):
 
         # cache batch size
         if self.batch_size is None:
-            data, target = self.running["train_loader_iterator"].__next__()
-            self.batch_size = data.shape[0]
+            data = self.running["train_loader_iterator"].__next__()
+            self.batch_size = data[0].shape[0]
 
         # reset prev state if not given fixed state
         self.prev_state = self._get_model_state()
@@ -517,6 +527,7 @@ class QuadraticGameWorker(TorchWorker):
         except StopIteration:
             # always raise stopiters if results are empty,
             # otherwise raise later in order to compute this step.
+            # note that this will never happen with `recompute_state`.
             if not self.results:
                 raise StopIteration
             else:

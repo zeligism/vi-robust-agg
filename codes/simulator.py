@@ -87,12 +87,21 @@ class ParallelTrainer(DistributedSimulatorBase):
         self.debug_logger.info(f"Train epoch {epoch}")
         self.parallel_call(lambda worker: worker.train_epoch_start())
 
+        @torch.no_grad()
+        def resync_params(w):
+            for param, global_param in zip(
+                    w.model.parameters(), self.server.model.parameters()):
+                if w.state[param]["resync"]:
+                    param.copy_(global_param.clone().detach())
+
         progress = 0
+        self.parallel_call(resync_params)
         for batch_idx in range(self.max_batches_per_epoch):
             try:
                 self._run_pre_batch_hooks(epoch, batch_idx)
                 results = self.parallel_get(lambda w: w.compute_gradient())
                 self.aggregation_and_update()
+                self.parallel_call(resync_params)
 
                 progress += sum(res["length"] for res in results)
                 if batch_idx % self.log_interval == 0:
@@ -349,13 +358,19 @@ class ParallelTrainerCC(ParallelTrainer):
             orig_rng_state = torch.get_rng_state()
             for validator, target in zip(validators, targets):
                 # Get target's state
+                if "data" not in self.workers[target].prev_state \
+                        or len(self.workers[target].prev_state["data"]) == 0:
+                    if self.debug:
+                        print("Skipping validation as target's previous iterate is data-independent.")
+                    continue
                 prev_target_state = deepcopy(self.workers[target].prev_state)
                 # The validator recomputes the grad at target's state and checks for significant mismatch
                 target_grad = gradients[target]
                 self.workers[validator].compute_gradient(recompute_state=prev_target_state)
                 target_grad_by_validator = self.workers[validator].get_gradient()
                 mismatch = torch.linalg.vector_norm(target_grad - target_grad_by_validator, ord=2).item()
-                rel_error = mismatch / torch.linalg.vector_norm(target_grad, ord=2).item()
+                norm = torch.linalg.vector_norm(target_grad, ord=2).item()
+                rel_error = float('inf') if norm == 0 else mismatch / norm
                 if rel_error > self.tolerance:
                     self.banned.add(validator)
                     self.banned.add(target)
