@@ -7,13 +7,13 @@ class QuadraticOptimal(_BaseAggregator):
         super().__init__()
         self.lmbd = lmbd  # tikhonov reg for pseudo-inverse
 
-    def __call__(self, inputs, target_grad=None):
+    def __call__(self, inputs, target_grad_closure=None):
         G = torch.stack(inputs, dim=0)  # Mxd
         GG = torch.einsum("id,jd->ij", G, G)  # MxM
         eye = torch.eye(*GG.size(), out=torch.empty_like(GG))
         GG_inv = torch.linalg.inv(GG + self.lmbd * eye)
         if target_grad is None:
-            # `target grad = average grad` works when majority are good
+            # reduces to fedavg
             target_grad = torch.mean(G, dim=0)
 
         weights = torch.einsum("ij,jd,d->i", GG_inv, G, target_grad)

@@ -8,7 +8,7 @@ from torchvision import datasets
 import torch.nn.functional as F
 
 # Utility functions
-from codes.tasks.mnist import mnist, Net
+from codes.tasks.mnist import mnist, Net, NetWithAdversary
 from codes.utils import top1_accuracy, initialize_logger
 
 # Attacks
@@ -30,6 +30,9 @@ from codes.worker import (
     GANMomentumWorker,
     GANAdamWorker,
     ByzantineGANWorker,
+    TorchWorkerWithAdversary,
+    MomentumWorkerWithAdversary,
+    ByzantineWorkerWithAdversary,
 )
 from codes.server import TorchServer
 from codes.simulator import (
@@ -104,6 +107,16 @@ def get_args(namespace=None):
     parser.add_argument(
         "--mimic-warmup", type=int, default=1, help="the warmup phase in iterations."
     )
+
+    # Adversary
+    parser.add_argument("--adversarial", action="store_true", default=False,
+                        help="Setup for introducing an adversary noise to the image.")
+    parser.add_argument("--reg", type=float, default=0.,
+                        help="[HP] L-2 regularization for model's parameters")
+    parser.add_argument("--adv-reg", type=float, default=1e10,
+                        help="[HP] L-2 regularization for adversary's parameters")
+    parser.add_argument("--adv-strength", type=float, default=1,
+                        help="[HP] strength of the adversary")
 
     # Quadratic Game
     parser.add_argument("--quadratic", action="store_true", default=False,
@@ -254,7 +267,15 @@ def initialize_worker(
     device,
     kwargs,
 ):
-    if args.gan or not args.quadratic:
+    if args.quadratic:
+        train_loader = quadratic_game(
+            data=QUADRATIC_GAME_DATA,
+            batch_size=args.batch_size,
+            sampler_callback=get_sampler_callback(args, worker_rank),
+            drop_last=True,
+            **kwargs,
+        )
+    else:
         dataset = mnist32 if args.gan else mnist
         train_loader = dataset(
             data_dir=DATA_DIR,
@@ -266,32 +287,26 @@ def initialize_worker(
             drop_last=True,  # Exclude the influence of non-full batch.
             **kwargs,
         )
-    else:
-        train_loader = quadratic_game(
-            data=QUADRATIC_GAME_DATA,
-            batch_size=args.batch_size,
-            sampler_callback=get_sampler_callback(args, worker_rank),
-            drop_last=True,
-            **kwargs,
-        )
 
     # Define worker opts
-    default_worker_opts = dict(data_loader=train_loader,
+    default_worker_opts = dict(worker_id=worker_rank,
+                               worker_steps=args.worker_steps,
+                               data_loader=train_loader,
                                model=model,
                                loss_func=loss_func,
                                device=device,
                                optimizer=optimizer,
                                **kwargs)
     if args.gan:
-        worker_opts = dict(worker_id=worker_rank,
-                           worker_steps=args.worker_steps,
-                           D_iters=args.D_iters,
+        worker_opts = dict(D_iters=args.D_iters,
                            conditional=args.conditional,
                            **default_worker_opts)
     elif args.quadratic:
-        worker_opts = dict(worker_id=worker_rank,
-                           worker_steps=args.worker_steps,
-                           sparsity=args.quadratic_sparsity,
+        worker_opts = dict(sparsity=args.quadratic_sparsity,
+                           **default_worker_opts)
+    elif args.adversarial:
+        worker_opts = dict(reg=args.reg,
+                           adv_reg=args.adv_reg,
                            **default_worker_opts)
     else:
         worker_opts = dict(**default_worker_opts)
@@ -302,6 +317,8 @@ def initialize_worker(
             return GANAdamWorker(betas=args.betas, **worker_opts)
         elif args.quadratic:
             return QuadraticGameMomentumWorker(momentum=args.momentum, **worker_opts)
+        elif args.adversarial:
+            return MomentumWorkerWithAdversary(momentum=args.momentum, **worker_opts)
         else:
             return MomentumWorker(momentum=args.momentum, **worker_opts)
 
@@ -343,6 +360,10 @@ def initialize_worker(
             class QuadraticGameAttacker(Attacker, ByzantineQuadraticGameWorker):
                 pass
             attacker = QuadraticGameAttacker(**attacker_opts, **worker_opts)
+        elif args.adversarial:
+            class AttackerWithAdversary(Attacker, ByzantineWorkerWithAdversary):
+                pass
+            attacker = AttackerWithAdversary(**attacker_opts, **worker_opts)
         else:
             attacker = Attacker(**attacker_opts, **worker_opts)
 
@@ -365,7 +386,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    use_constructor = False
+    use_constructor = False  # construct a separate model and optimizer for each worker
 
     ### GAN Setup ###
     if args.gan:
@@ -440,7 +461,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
 
         post_batch_hooks = [save_snapshot_hook]
         # metrics are calculated during the run, just provide any dummy function
-        metrics = {"D->D(x)": lambda x: x, "D->D(G(z))": lambda x: x, "G->D(G(z))": lambda x: x}
+        metrics = {"D->D(x)": lambda *x: -1, "D->D(G(z))": lambda *x: -1, "G->D(G(z))": lambda *x: -1}
 
     ### Quadratic Game Setup ###
     elif args.quadratic:
@@ -465,6 +486,30 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         post_batch_hooks = []
         metrics = {}
 
+    ### Adversarial ###
+    elif args.adversarial:
+        LR = args.lr
+
+        def init_model():
+            return NetWithAdversary(adv_strength=args.adv_strength).to(device)
+
+        model = init_model()
+
+        def init_optimizer(local_model):
+            return {
+                "model": torch.optim.SGD(local_model.model.parameters(), lr=LR),
+                "adversary": torch.optim.SGD(local_model.adversary.parameters(), lr=LR),
+                "all": torch.optim.SGD(local_model.parameters(), lr=LR),
+            }
+
+        optimizers = [None] * args.n
+        use_constructor = True
+
+        post_batch_hooks = []
+        metrics = {"top1": top1_accuracy, "model_l2_norm": lambda *x: -1, "adversary_l2_norm": lambda *x: -1}
+        server_opt = torch.optim.SGD(model.parameters(), lr=LR)
+        loss_func = F.nll_loss
+
     ### Normal Setup ###
     else:
         LR = args.lr
@@ -474,6 +519,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         metrics = {"top1": top1_accuracy}
         server_opt = torch.optim.SGD(model.parameters(), lr=LR)
         loss_func = F.nll_loss
+
 
     ### Server ###
     server = TorchServer(optimizer=server_opt, model=model)

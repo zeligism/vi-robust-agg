@@ -31,6 +31,60 @@ class Net(nn.Module):
         return output
 
 
+class _NetWithAdversary(nn.Module):
+    """
+    Adversary on the activation prior to last linear layer.
+    """
+
+    def __init__(self, adv_strength):
+        super().__init__()
+        self.pre_fc = nn.Sequential(
+            nn.Conv2d(1, 32, 3, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 64, 3, 1),
+            nn.MaxPool2d(2),
+            nn.Dropout2d(0.25),
+            nn.Flatten(),
+            nn.Linear(9216, 128),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(0.5),
+        )
+        self.fc = nn.Linear(128, 10)
+        self.model = nn.Sequential(self.pre_fc, self.fc)
+        self.adversary = DataShiftAdversary((128,), adv_strength)
+
+    def forward(self, x):
+        x = self.pre_fc(x)
+        x = self.adversary(x)
+        x = self.fc(x)
+        output = F.log_softmax(x, dim=1)
+        return output
+
+
+class NetWithAdversary(nn.Module):
+    """
+    Adversary on the input data.
+    """
+
+    def __init__(self, adv_strength):
+        super().__init__()
+        self.model = Net()
+        self.adversary = DataShiftAdversary((1, 28, 28), adv_strength)
+
+    def forward(self, x):
+        return self.model(self.adversary(x))
+
+
+class DataShiftAdversary(nn.Module):
+    def __init__(self, shape, strength):
+        super().__init__()
+        self.parameter = nn.Parameter(torch.randn(1, *shape))
+        self.strength = strength
+
+    def forward(self, x):
+        return x + self.strength * self.parameter
+
+
 def mnist(
     data_dir,
     train,

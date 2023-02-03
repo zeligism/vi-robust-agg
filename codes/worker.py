@@ -14,11 +14,13 @@ class TorchWorker(object):
 
     def __init__(
         self,
+        worker_id: int,
         data_loader: torch.utils.data.DataLoader,
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         loss_func: torch.nn.modules.loss._Loss,
         device: Union[torch.device, str],
+        worker_steps: int = 1,
     ):
         self.data_loader = data_loader
         self.model = model
@@ -33,6 +35,11 @@ class TorchWorker(object):
         self.running = {}
         self.metrics = {}
         self.state = defaultdict(dict)
+
+        self.worker_id = worker_id
+        self.worker_steps = min(worker_steps, len(self.data_loader) - 1)
+        self.batch_size = None
+        self.num_iters = 0
 
     def add_metric(
         self,
@@ -53,7 +60,7 @@ class TorchWorker(object):
             self.add_metric(name, metrics[name])
 
     def __str__(self) -> str:
-        return "TorchWorker"
+        return f"TorchWorker [{self.worker_id}]"
 
     def train_epoch_start(self) -> None:
         self.running["train_loader_iterator"] = iter(self.data_loader)
@@ -134,18 +141,32 @@ class TorchWorker(object):
     def _get_model_state(self):
         return {
             "model": deepcopy(self.model.state_dict()),
-            # "rng": torch.get_rng_state(),
+            "num_iters": self.num_iters,
+            "rng": torch.get_rng_state(),
         }
 
     def _set_model_state(self, state):
         self.model.load_state_dict(state['model'])
-        # torch.set_rng_state(state['rng'])
+        self.num_iters = state['num_iters']
+        torch.set_rng_state(state['rng'])
+
+    def _sample_data(self, recompute_state={}):
+        if recompute_state:
+            data = recompute_state['data'].pop(0)
+        else:
+            data = self.running["train_loader_iterator"].__next__()
+            self.prev_state['data'].append([d.detach() for d in data])
+        data = [d.to(self.device) for d in data]
+        return data
 
 
 class MomentumWorker(TorchWorker):
     def __init__(self, momentum, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.momentum = momentum
+
+    def __str__(self) -> str:
+        return f"MomentumWorker [{self.worker_id}]"
 
     def _save_grad(self) -> None:
         for group in self.optimizer.param_groups:
@@ -174,6 +195,9 @@ class AdamWorker(TorchWorker):
         self.betas = betas
         self.eps = eps
         self.correct_bias = correct_bias
+
+    def __str__(self) -> str:
+        return f"AdamWorker [{self.worker_id}]"
 
     def _save_grad(self) -> None:
         for group in self.optimizer.param_groups:
@@ -216,17 +240,12 @@ class GANWorker(TorchWorker):
     METRICS = ['D->D(x)', 'D->D(G(z))', 'G->D(G(z))']
 
     def __init__(self,
-                 worker_id,
-                 worker_steps=1,
                  D_iters: int = 3,
                  conditional: bool = False,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if callable(self.model):
+        if not isinstance(self.model, torch.nn.Module):
             self.model = self.model()
-        self.batch_size = None
-        self.worker_id = worker_id
-        self.worker_steps = min(worker_steps, len(self.data_loader) - 1)
         self.D_iters = D_iters
         self.conditional = conditional
         if callable(self.optimizer):
@@ -240,7 +259,6 @@ class GANWorker(TorchWorker):
         self.progress_frames = []
         self.progress_frames_freq = 4  # per epoch, better if = multiple of 2
         self.progress_frames_maxlen = 200
-        self.num_iters = 0
         self.raise_stopiter_later = False
 
         for p in self.model.parameters():
@@ -252,24 +270,6 @@ class GANWorker(TorchWorker):
     @staticmethod
     def add_noise(tensor, std=0.02):
         return tensor + std * torch.randn_like(tensor)
-
-    def _get_model_state(self):
-        state = super()._get_model_state()
-        state["num_iters"] = self.num_iters
-        return state
-
-    def _set_model_state(self, state):
-        super()._set_model_state(state)
-        self.num_iters = state['num_iters']
-
-    def _sample_data(self, recompute_state={}):
-        if recompute_state:
-            data = recompute_state['data'].pop(0)
-        else:
-            data = self.running["train_loader_iterator"].__next__()
-            self.prev_state['data'].append([d.detach() for d in data])
-        data = [d.to(self.device) for d in data]
-        return data
 
     def _compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
         D_metrics = {}
@@ -438,14 +438,9 @@ class QuadraticGameWorker(TorchWorker):
     """
 
     def __init__(self,
-                 worker_id,
-                 worker_steps=1,
                  sparsity=0.,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.batch_size = None
-        self.worker_id = worker_id
-        self.worker_steps = min(worker_steps, len(self.data_loader))
         self.sparsity = sparsity
         self.optimizers = self.optimizer["players"]
         self.optimizer = self.optimizer["all"]  # dummy optimizer for passing grads
@@ -453,24 +448,6 @@ class QuadraticGameWorker(TorchWorker):
 
     def __str__(self) -> str:
         return f"QuadraticGameWorker [{self.worker_id}]"
-
-    def _get_model_state(self):
-        state = super()._get_model_state()
-        state["num_iters"] = self.num_iters
-        return state
-
-    def _set_model_state(self, state):
-        super()._set_model_state(state)
-        self.num_iters = state['num_iters']
-
-    def _sample_data(self, recompute_state={}):
-        if recompute_state:
-            data = recompute_state['data'].pop(0)
-        else:
-            data = self.running["train_loader_iterator"].__next__()
-            self.prev_state['data'].append([d.detach() for d in data])
-        data = [d.to(self.device) for d in data]
-        return data
 
     def _compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
         losses = []
@@ -487,7 +464,7 @@ class QuadraticGameWorker(TorchWorker):
             self.optimizers[turn].zero_grad()
             (sign * loss + reg).backward()
             self.optimizers[turn].step()
-            losses.append(loss)
+            losses.append(loss.detach())
             self.num_iters += 1
             self.running["data"] = data
             self.results["length"] = data[0].size(0)
@@ -550,6 +527,118 @@ class QuadraticGameAdamWorker(QuadraticGameWorker, AdamWorker):
     def __str__(self) -> str:
         return f"QuadraticGameAdamWorker [{self.worker_id}]"
 
+
+###############################################################################
+class TorchWorkerWithAdversary(TorchWorker):
+    """
+    A worker with an adversary.
+    """
+
+    def __init__(self, reg: float = 0., adv_reg: float = 1e10, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not isinstance(self.model, torch.nn.Module):
+            self.model = self.model()
+        if callable(self.optimizer):
+            self.optimizers = self.optimizer(self.model)
+        else:
+            self.optimizers = self.optimizer
+        self.optimizer = self.optimizers["all"]  # dummy optimizer for passing grads
+        self.reg = reg
+        self.adv_reg = adv_reg
+
+    def __str__(self) -> str:
+        return f"TorchWorkerWithAdversary [{self.worker_id}]"
+
+    def _compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
+        losses = []
+        self.results["metrics"] = {}
+        for _ in range(self.worker_steps):
+            data, target = self._sample_data(recompute_state)
+            output = self.model(data)
+            turn = "model" if self.num_iters % 2 == 0 else "adversary"
+            sign = -1. if turn == "adversary" else 1.
+            loss = self.loss_func(output, target)
+            # regularization
+            if turn == "model":
+                model_flat_params = torch.cat([p.view(-1) for p in self.model.model.parameters()])
+                l2_norm = torch.linalg.vector_norm(model_flat_params, ord=2)
+                l2_reg = 0.5 * self.reg * l2_norm**2
+            else:
+                adv_flat_params = torch.cat([p.view(-1) for p in self.model.adversary.parameters()])
+                l2_norm = torch.linalg.vector_norm(adv_flat_params, ord=2)
+                l2_reg = 0.5 * self.adv_reg * l2_norm**2
+            # optimize
+            self.optimizers[turn].zero_grad()
+            (sign * loss + l2_reg).backward()
+            self.optimizers[turn].step()
+            losses.append(loss.detach())
+            self.num_iters += 1
+            self.running["data"] = data
+            self.results["length"] = data[0].size(0)
+            self.results["loss"] = torch.stack(losses).mean().item()
+            for name, metric in self.metrics.items():
+                if "l2_norm" in name:
+                    continue
+                self.results["metrics"][name] = metric(output, target)
+            self.results["metrics"][f"{turn}_l2_norm"] = l2_norm.item()
+
+    def train_epoch_start(self) -> None:
+        super().train_epoch_start()
+        self.raise_stopiter_later = False
+
+    def compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
+        """
+        Note 1: Recompute_state works only for SGD.
+        Note 2: Some StopIteration acrobatics was done in order to achieve
+                multi-local steps without changing the original simulator.
+        """
+        if self.raise_stopiter_later:
+            self.raise_stopiter_later = False
+            raise StopIteration
+
+        # cache batch size
+        if self.batch_size is None:
+            data = self.running["train_loader_iterator"].__next__()
+            self.batch_size = data[0].shape[0]
+
+        # reset prev state if not given fixed state
+        self.prev_state = self._get_model_state()
+        self.prev_state["data"] = []
+        if recompute_state:
+            self._set_model_state(recompute_state)
+
+        # Update worker's gradient
+        self._cache_old_params()
+        try:
+            self.results = {}
+            self._compute_gradient(recompute_state)
+        except StopIteration:
+            # always raise stopiters if results are empty,
+            # otherwise raise later in order to compute this step.
+            # note that this will never happen with `recompute_state`.
+            if not self.results:
+                raise StopIteration
+            else:
+                self.raise_stopiter_later = True
+        self._set_delta_as_grad()
+        self._save_grad()
+        # reset to previous state when done recomputing
+        if recompute_state:
+            self._set_model_state(self.prev_state)
+
+        return self.results
+
+
+class MomentumWorkerWithAdversary(TorchWorkerWithAdversary, MomentumWorker):
+    def __str__(self) -> str:
+        return f"MomentumWorkerWithAdversary [{self.worker_id}]"
+
+
+class AdamWorkerWithAdversary(TorchWorkerWithAdversary, AdamWorker):
+    def __str__(self) -> str:
+        return f"AdamWorkerWithAdversary [{self.worker_id}]"
+
+
 ###############################################################################
 
 
@@ -583,3 +672,8 @@ class ByzantineQuadraticGameWorker(QuadraticGameWorker, ByzantineWorker):
 class ByzantineGANWorker(GANWorker, ByzantineWorker):
     def __str__(self) -> str:
         return "ByzantineGANWorker"
+
+
+class ByzantineWorkerWithAdversary(TorchWorkerWithAdversary, ByzantineWorker):
+    def __str__(self) -> str:
+        return "ByzantineWorkerWithAdversary"
