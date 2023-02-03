@@ -461,7 +461,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
 
         post_batch_hooks = [save_snapshot_hook]
         # metrics are calculated during the run, just provide any dummy function
-        metrics = {"D->D(x)": lambda x: x, "D->D(G(z))": lambda x: x, "G->D(G(z))": lambda x: x}
+        metrics = {"D->D(x)": lambda *x: -1, "D->D(G(z))": lambda *x: -1, "G->D(G(z))": lambda *x: -1}
 
     ### Quadratic Game Setup ###
     elif args.quadratic:
