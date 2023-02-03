@@ -107,7 +107,7 @@ class ParallelTrainer(DistributedSimulatorBase):
         def resync_params(w):
             for param, global_param in zip(
                     w.model.parameters(), self.server.model.parameters()):
-                if w.state[param]["resync"]:
+                if "resync" not in w.state[param] or w.state[param]["resync"]:
                     param.copy_(global_param.clone().detach())
 
         progress = 0
@@ -118,6 +118,8 @@ class ParallelTrainer(DistributedSimulatorBase):
                 results = self.parallel_get(lambda w: w.compute_gradient())
                 self.aggregation_and_update()
                 self.parallel_call(resync_params)
+                # print("adv", next(iter(self.server.model.adversary.parameters())).mean().item())
+                # print("model", next(iter(self.server.model.model.parameters())).mean().item())
 
                 progress += sum(res["length"] for res in results)
                 if batch_idx % self.log_interval == 0:
