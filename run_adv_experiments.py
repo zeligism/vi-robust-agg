@@ -40,6 +40,7 @@ time.sleep(3 * random())
 
 for hp_combination in product(*HP_SPACE.values()):
     args_dict = dict(**default_hp, **dict(zip(HP_SPACE.keys(), hp_combination)))
+    args_dict["adversarial"] = True
     if args_dict["attack"] == "NA":
         args_dict["f"] = 0
 
