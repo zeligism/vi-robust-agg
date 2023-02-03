@@ -506,7 +506,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         use_constructor = True
 
         post_batch_hooks = []
-        metrics = {"top1": top1_accuracy}
+        metrics = {"top1": top1_accuracy, "model_l2_norm": lambda *x: -1, "adversary_l2_norm": lambda *x: -1}
         server_opt = torch.optim.SGD(model.parameters(), lr=LR)
         loss_func = F.nll_loss
 

@@ -39,7 +39,6 @@ QUADRATIC_DEFAULT_HP = {
 
 # Hyperparameters search space
 HP_SPACE = {
-<<<<<<< HEAD
     "seed": range(1),
     "attack": ["NA", "IPM", "ALIE"],
     "worker_steps": [120],

@@ -551,6 +551,7 @@ class TorchWorkerWithAdversary(TorchWorker):
 
     def _compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
         losses = []
+        self.results["metrics"] = {}
         for _ in range(self.worker_steps):
             data, target = self._sample_data(recompute_state)
             output = self.model(data)
@@ -560,10 +561,12 @@ class TorchWorkerWithAdversary(TorchWorker):
             # regularization
             if turn == "model":
                 model_flat_params = torch.cat([p.view(-1) for p in self.model.model.parameters()])
-                l2_reg = 0.5 * self.reg * torch.linalg.vector_norm(model_flat_params, ord=2)**2
+                l2_norm = torch.linalg.vector_norm(model_flat_params, ord=2)
+                l2_reg = 0.5 * self.reg * l2_norm**2
             else:
                 adv_flat_params = torch.cat([p.view(-1) for p in self.model.adversary.parameters()])
-                l2_reg = 0.5 * self.adv_reg * torch.linalg.vector_norm(adv_flat_params, ord=2)**2
+                l2_norm = torch.linalg.vector_norm(adv_flat_params, ord=2)
+                l2_reg = 0.5 * self.adv_reg * l2_norm**2
             # optimize
             self.optimizers[turn].zero_grad()
             (sign * loss + l2_reg).backward()
@@ -573,9 +576,11 @@ class TorchWorkerWithAdversary(TorchWorker):
             self.running["data"] = data
             self.results["length"] = data[0].size(0)
             self.results["loss"] = torch.stack(losses).mean().item()
-            self.results["metrics"] = {}
             for name, metric in self.metrics.items():
+                if "l2_norm" in name:
+                    continue
                 self.results["metrics"][name] = metric(output, target)
+            self.results["metrics"][f"{turn}_l2_norm"] = l2_norm.item()
 
     def train_epoch_start(self) -> None:
         super().train_epoch_start()
