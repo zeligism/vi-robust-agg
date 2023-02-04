@@ -113,7 +113,7 @@ def get_args(namespace=None):
                         help="Setup for introducing an adversary noise to the image.")
     parser.add_argument("--reg", type=float, default=0.,
                         help="[HP] L-2 regularization for model's parameters")
-    parser.add_argument("--adv-reg", type=float, default=1e10,
+    parser.add_argument("--adv-reg", type=float, default=0,
                         help="[HP] L-2 regularization for adversary's parameters")
     parser.add_argument("--adv-strength", type=float, default=1,
                         help="[HP] strength of the adversary")
@@ -529,11 +529,44 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
     else:
         Trainer = ParallelTrainerCC
         trainer_kwargs = {'num_peers': args.num_peers}
+    aggregator = get_aggregator(args)
+
+    if args.agg == "qopt":
+
+        class ValidationGradSampler:
+            """
+            Note: `model` is defined outside this scope.
+            For now, implemented only for MNIST (see `run_normal.py`).
+            """
+
+            def __init__(self, data_loader):
+                self.validation_loader = data_loader
+                self.reset()
+
+            def reset(self):
+                self.data_sampler = iter(self.validation_loader)
+
+            def sample(self):
+                try:
+                    data, target = next(self.data_sampler)
+                    data, target = data.to(device), target.to(device)
+                    output = model(data)
+                    model.zero_grad()
+                    loss_func(output, target).mean().backward()
+                    return torch.cat([p.grad.view(-1) for p in model.parameters() if p.grad is not None])
+                except StopIteration:
+                    self.reset()
+                    return self.sample()
+
+        validation_sampler = ValidationGradSampler(mnist(
+            data_dir=DATA_DIR, train=False, download=True,
+            batch_size=args.batch_size, shuffle=True, **kwargs))
+        aggregator = QuadraticOptimal(target_grad_closure=validation_sampler.sample)
 
     ### Simulator ###
     trainer = Trainer(
         server=server,
-        aggregator=get_aggregator(args),
+        aggregator=aggregator,
         pre_batch_hooks=[],
         post_batch_hooks=post_batch_hooks,
         max_batches_per_epoch=MAX_BATCHES_PER_EPOCH,

@@ -551,7 +551,6 @@ class TorchWorkerWithAdversary(TorchWorker):
 
     def _compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
         losses = []
-        self.results["metrics"] = {}
         for _ in range(self.worker_steps):
             data, target = self._sample_data(recompute_state)
             output = self.model(data)
@@ -576,8 +575,10 @@ class TorchWorkerWithAdversary(TorchWorker):
             self.running["data"] = data
             self.results["length"] = data[0].size(0)
             self.results["loss"] = torch.stack(losses).mean().item()
+            if "metrics" not in self.results:
+                self.results["metrics"] = {}
             for name, metric in self.metrics.items():
-                if "l2_norm" in name:
+                if "l2_norm" in name and name in self.results["metrics"]:
                     continue
                 self.results["metrics"][name] = metric(output, target)
             self.results["metrics"][f"{turn}_l2_norm"] = l2_norm.item()
