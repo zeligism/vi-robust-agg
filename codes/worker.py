@@ -558,14 +558,14 @@ class TorchWorkerWithAdversary(TorchWorker):
             sign = -1. if turn == "adversary" else 1.
             loss = self.loss_func(output, target)
             # regularization
+            model_flat_params = torch.cat([p.view(-1) for p in self.model.model.parameters()])
+            model_l2_norm = torch.linalg.vector_norm(model_flat_params, ord=2)
+            adv_flat_params = torch.cat([p.view(-1) for p in self.model.adversary.parameters()])
+            adv_l2_norm = torch.linalg.vector_norm(adv_flat_params, ord=2)
             if turn == "model":
-                model_flat_params = torch.cat([p.view(-1) for p in self.model.model.parameters()])
-                l2_norm = torch.linalg.vector_norm(model_flat_params, ord=2)
-                l2_reg = 0.5 * self.reg * l2_norm**2
+                l2_reg = 0.5 * self.reg * model_l2_norm**2
             else:
-                adv_flat_params = torch.cat([p.view(-1) for p in self.model.adversary.parameters()])
-                l2_norm = torch.linalg.vector_norm(adv_flat_params, ord=2)
-                l2_reg = 0.5 * self.adv_reg * l2_norm**2
+                l2_reg = 0.5 * self.adv_reg * adv_l2_norm**2
             # optimize
             self.optimizers[turn].zero_grad()
             (sign * loss + l2_reg).backward()
@@ -575,13 +575,11 @@ class TorchWorkerWithAdversary(TorchWorker):
             self.running["data"] = data
             self.results["length"] = data[0].size(0)
             self.results["loss"] = torch.stack(losses).mean().item()
-            if "metrics" not in self.results:
-                self.results["metrics"] = {}
+            self.results["metrics"] = {}
             for name, metric in self.metrics.items():
-                if "l2_norm" in name and name in self.results["metrics"]:
-                    continue
                 self.results["metrics"][name] = metric(output, target)
-            self.results["metrics"][f"{turn}_l2_norm"] = l2_norm.item()
+            self.results["metrics"]["model_l2_norm"] = model_l2_norm.item()
+            self.results["metrics"]["adversary_l2_norm"] = adv_l2_norm.item()
 
     def train_epoch_start(self) -> None:
         super().train_epoch_start()
