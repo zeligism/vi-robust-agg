@@ -8,7 +8,7 @@ class QuadraticOptimal(_BaseAggregator):
         self.lmbd = lmbd  # tikhonov reg for pseudo-inverse
         self.betas = betas
         self.wmomentum = wmomentum
-        self.target_grad_closure = None#target_grad_closure
+        self.target_grad_closure = target_grad_closure
         self.G = None
         self.GG = None
         self.weights = None
@@ -50,3 +50,52 @@ class QuadraticOptimal(_BaseAggregator):
 
     def __str__(self):
         return "QuadraticOptimal"
+
+
+class MirrorDescent(_BaseAggregator):
+    def __init__(self, model, target_grad_closure=None, num_iters=5):
+        super().__init__()
+        self.model = model
+        self.target_grad_closure = target_grad_closure
+        self.num_iters = num_iters
+        self.lr = 0.1
+        self.params_cache = {}
+        self.weights = None
+
+    @torch.no_grad()
+    def __call__(self, inputs):
+        # only allow grads for calculating target grad
+        self.target_grad_closure = torch.enable_grad()(self.target_grad_closure)
+
+        G = torch.stack(inputs, dim=0)  # Mxd
+
+        if self.weights is None:
+            weights = torch.ones(len(inputs))
+            weights /= weights.sum()
+            self.weights = weights
+
+        for p in self.model.parameters():
+            self.params_cache[p] = p.clone().detach()
+
+        for iters in range(self.num_iters):
+            aggregated = torch.sum(self.weights.view(-1,1) * G, dim=0)
+            # Update params with aggregated grad
+            i = 0
+            for p in self.model.parameters():
+                j = i + p.numel()
+                p.sub_(aggregated[i:j].reshape_as(p), alpha=self.lr)
+                i = j
+            # calculate target grad
+            target_grad = self.target_grad_closure(self.model)
+            # revert to old params
+            for p in self.model.parameters():
+                p.copy_(self.params_cache[p])
+            # apply weights update
+            weights_prop = self.weights * torch.exp(-self.lr * torch.einsum("ij,j->i", G, target_grad))
+            self.weights = torch.softmax(weights_prop, dim=0)
+            # print(iters, weights_prop)
+
+        return torch.sum(self.weights.view(-1,1) * G, dim=0)
+
+    def __str__(self):
+        return "MirrorDescent"

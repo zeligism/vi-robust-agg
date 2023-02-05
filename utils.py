@@ -157,9 +157,6 @@ def _get_aggregator(args):
     if args.agg == "avg":
         return Mean()
 
-    if args.agg == "qopt":
-        return QuadraticOptimal()
-
     if args.agg == "cm":
         return CM()
 
@@ -529,7 +526,8 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
     else:
         Trainer = ParallelTrainerCC
         trainer_kwargs = {'num_peers': args.num_peers}
-    aggregator = get_aggregator(args)
+    if args.agg != "qopt":
+        aggregator = get_aggregator(args)
 
     if args.agg == "qopt":
 
@@ -539,14 +537,16 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
             For now, implemented only for MNIST (see `run_normal.py`).
             """
 
-            def __init__(self, data_loader):
+            def __init__(self, model, data_loader):
+                self.model = model
                 self.validation_loader = data_loader
                 self.reset()
 
             def reset(self):
                 self.data_sampler = iter(self.validation_loader)
 
-            def sample(self):
+            def sample(self, model=None):
+                model = self.model if model is None else model
                 try:
                     data, target = next(self.data_sampler)
                     data, target = data.to(device), target.to(device)
@@ -558,7 +558,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
                     self.reset()
                     return self.sample()
 
-        validation_sampler = ValidationGradSampler(mnist(
+        validation_sampler = ValidationGradSampler(model, mnist(
             data_dir=DATA_DIR, train=False, download=True,
             batch_size=args.batch_size, shuffle=True, **kwargs))
         aggregator = QuadraticOptimal(target_grad_closure=validation_sampler.sample)

@@ -21,7 +21,7 @@ INP_DIR = LOG_DIR
 OUT_DIR = LOG_DIR + "output/"
 LOG_DIR += f"{args.agg}_{args.attack}_lr{args.lr}_m{args.momentum}_seed{args.seed}"
 
-MAX_BATCHES_PER_EPOCH = 30
+MAX_BATCHES_PER_EPOCH = 10**10
 EPOCHS = args.epochs
 # args.lr = 0.01
 # args.batch_size = 32
