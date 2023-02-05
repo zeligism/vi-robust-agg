@@ -82,22 +82,34 @@ class ParallelTrainer(DistributedSimulatorBase):
         self.server.set_gradient(aggregated)
         self.server.apply_gradient()
 
-        # # update workers' momentum
-        # aggregated_sq = self.aggregator([g**2 for g in gradients])
+        # --------- update workers' momentum ---------#
+        def get_states(w, state):
+            flat_states = []
+            for group in w.optimizer.param_groups:
+                for p in group["params"]:
+                    param_state = w.state[p]
+                    flat_states.append(param_state[state].data.view(-1))
+            return torch.cat(flat_states)
 
-        # @torch.no_grad()
-        # def set_aggregate_momentum(w):
-        #     i = 0
-        #     for param in zip(w.model.parameters()):
-        #         param_state = w.state[param]
-        #         if "momentum_buffer" not in param_state:
-        #             continue
-        #         j = i + param.numel()
-        #         param_state["momentum_buffer"].copy_(aggregated[i::j])
-        #         param_state["momentumsq_buffer"].copy_(aggregated_sq[i::j])
-        #         i = j
+        momenta = self.parallel_get(lambda w: get_states(w, "momentum_buffer"))
+        momenta_sq = self.parallel_get(lambda w: get_states(w, "momentumsq_buffer"))
+        aggregated_momenta = self.aggregator(momenta)
+        aggregated_momenta_sq = self.aggregator(momenta_sq)
 
-        # self.parallel_call(set_aggregate_momentum)
+        @torch.no_grad()
+        def set_aggregate_momentum(w):
+            i = 0
+            for param in zip(w.model.parameters()):
+                param_state = w.state[param]
+                if "momentum_buffer" not in param_state:
+                    continue
+                j = i + param.numel()
+                param_state["momentum_buffer"].copy_(aggregated_momenta[i::j])
+                param_state["momentumsq_buffer"].copy_(aggregated_momenta_sq[i::j])
+                i = j
+
+        self.parallel_call(set_aggregate_momentum)
+        # -----------------------------#
 
     def train(self, epoch):
         self.debug_logger.info(f"Train epoch {epoch}")
