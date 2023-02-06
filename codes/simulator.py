@@ -94,9 +94,13 @@ class ParallelTrainer(DistributedSimulatorBase):
             return None if len(flat_states) == 0 else torch.cat(flat_states)
 
         momenta = self.parallel_get(lambda w: get_states(w, "momentum_buffer"))
+        momenta = [momentum for momentum in momenta if momentum is not None]
         momenta_sq = self.parallel_get(lambda w: get_states(w, "momentumsq_buffer"))
-        aggregated_momenta = self.aggregator([momentum for momentum in momenta if momentum is not None])
-        aggregated_momenta_sq = self.aggregator([momentum_sq for momentum_sq in momenta_sq if momentum_sq is not None])
+        momenta_sq = [momentum_sq for momentum_sq in momenta_sq if momentum_sq is not None]
+        if len(momenta) > 0:
+            aggregated_momenta = self.aggregator(momenta)
+        if len(momenta_sq) > 0:
+            aggregated_momenta_sq = self.aggregator(momenta_sq)
 
         @torch.no_grad()
         def set_aggregate_momentum(w):
@@ -106,8 +110,10 @@ class ParallelTrainer(DistributedSimulatorBase):
                 if "momentum_buffer" not in param_state:
                     continue
                 j = i + param.numel()
-                param_state["momentum_buffer"].copy_(aggregated_momenta[i::j])
-                param_state["momentumsq_buffer"].copy_(aggregated_momenta_sq[i::j])
+                if len(momenta) > 0:
+                    param_state["momentum_buffer"].copy_(aggregated_momenta[i::j])
+                if len(momenta_sq) > 0:
+                    param_state["momentumsq_buffer"].copy_(aggregated_momenta_sq[i::j])
                 i = j
 
         self.parallel_call(set_aggregate_momentum)
