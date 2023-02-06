@@ -88,13 +88,15 @@ class ParallelTrainer(DistributedSimulatorBase):
             for group in w.optimizer.param_groups:
                 for p in group["params"]:
                     param_state = w.state[p]
+                    if state not in param_state:
+                        continue  # TODO: byzantine?
                     flat_states.append(param_state[state].data.view(-1))
-            return torch.cat(flat_states)
+            return None if len(flat_states) == 0 else torch.cat(flat_states)
 
         momenta = self.parallel_get(lambda w: get_states(w, "momentum_buffer"))
         momenta_sq = self.parallel_get(lambda w: get_states(w, "momentumsq_buffer"))
-        aggregated_momenta = self.aggregator(momenta)
-        aggregated_momenta_sq = self.aggregator(momenta_sq)
+        aggregated_momenta = self.aggregator([momentum for momentum in momenta if momentum is not None])
+        aggregated_momenta_sq = self.aggregator([momentum_sq for momentum_sq in momenta_sq if momentum_sq is not None])
 
         @torch.no_grad()
         def set_aggregate_momentum(w):
