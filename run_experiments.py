@@ -17,7 +17,7 @@ from utils import EXP_DIR
 # Default hyperparameters for both experiments
 GAN_DEFAULT_HP = {
     "epochs": 100,
-    "batch_size": 128,
+    "batch_size": 8,
     "lr": 1e-3,
     "n": 20,
     "f": 4,
