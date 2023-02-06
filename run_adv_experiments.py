@@ -19,16 +19,27 @@ ADV_DEFAULT_HP = {
     "epochs": 30,
     "n": 20,
     "f": 4,
+    "lr": 1e-2,
+    "batch_size": 32,
+    "agg": "avg",
 }
 
 # Hyperparameters search space
+# HP_SPACE = {
+#     "seed": range(3),
+#     "attack": ["NA", "LF", "ALIE"],
+#     "reg": [0, 1],
+#     "adv_reg": [0, 0.01, 0.1, 1, 10, 100],
+#     "adv_strength": [1, 10],
+#     "worker_steps": [1, 2],
+# }
 HP_SPACE = {
-    "seed": range(3),
-    "attack": ["NA", "LF", "ALIE"],
+    "seed": range(5),
+    "attack": ["NA", "LF", "IPM", "ALIE"],
     "reg": [0, 1],
-    "adv_reg": [0, 0.01, 0.1, 1, 10, 100],
-    "adv_strength": [1, 10],
+    "adv_reg": [0, 1],
     "worker_steps": [1, 2],
+    "momentum": [0.0, 0.9],
 }
 
 # Load experiment name automatically, argparser will handle the rest
@@ -49,7 +60,7 @@ for hp_combination in product(*HP_SPACE.values()):
     args = get_args(namespace=Namespace(**args_dict))
     current_log_dir = log_dir
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_seed{args.seed}"
-    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_advstr{args.adv_strength}_wsteps{args.worker_steps}"
+    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_advstr{args.adv_strength}_wsteps{args.worker_steps}_m{args.momentum}"
     # Skip if another job already started on this
     if not os.path.exists(current_log_dir):
         main(args, current_log_dir, args.epochs, 10**10)
