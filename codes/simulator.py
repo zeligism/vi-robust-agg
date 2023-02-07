@@ -429,6 +429,8 @@ class ParallelTrainerCC(ParallelTrainer):
                         # bad workers don't accuse each other
                         pass
                     else:
+                        if self.debug:
+                            print(f"Banning worker {validator} and {target}.")
                         # good workers accuse bad workers, and bad workers accuse good workers.
                         self.banned.add(validator)
                         self.banned.add(target)

@@ -24,7 +24,7 @@ ADV_DEFAULT_HP = {
     "agg": "avg",
 }
 
-# Hyperparameters search space
+# Experiment 1
 # HP_SPACE = {
 #     "seed": range(3),
 #     "attack": ["NA", "LF", "ALIE"],
@@ -33,6 +33,7 @@ ADV_DEFAULT_HP = {
 #     "adv_strength": [1, 10],
 #     "worker_steps": [1, 2],
 # }
+# Experiment 2
 HP_SPACE = {
     "seed": range(5),
     "attack": ["NA", "LF", "IPM", "ALIE"],
