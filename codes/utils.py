@@ -1,7 +1,6 @@
 import os
 import shutil
 import logging
-import torch
 
 
 class BColors(object):
@@ -59,6 +58,8 @@ def log_dict(*args, **kwargs):
 
 
 def initialize_logger(log_root):
+    reset_logger()
+
     if not os.path.exists(log_root):
         os.makedirs(log_root)
     else:
@@ -84,3 +85,15 @@ def initialize_logger(log_root):
     fh = logging.FileHandler(os.path.join(log_root, "debug"))
     fh.setLevel(logging.INFO)
     debug_logger.addHandler(fh)
+
+
+def reset_logger():
+    json_logger = logging.getLogger("stats")
+    while len(json_logger.handlers) > 0:
+        json_logger.handlers[0].stream.close()
+        json_logger.removeHandler(json_logger.handlers[0])
+
+    debug_logger = logging.getLogger("debug")
+    while len(debug_logger.handlers) > 0:
+        debug_logger.handlers[0].stream.close()
+        debug_logger.removeHandler(debug_logger.handlers[0])
