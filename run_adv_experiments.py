@@ -24,27 +24,29 @@ ADV_DEFAULT_HP = {
     "agg": "avg",
 }
 
-# Experiment 1
-# HP_SPACE = {
-#     "seed": range(3),
-#     "attack": ["NA", "LF", "ALIE"],
-#     "reg": [0, 1],
-#     "adv_reg": [0, 0.01, 0.1, 1, 10, 100],
-#     "adv_strength": [1, 10],
-#     "worker_steps": [1, 2],
-# }
-# Experiment 2
-HP_SPACE = {
-    "seed": range(5),
-    "attack": ["NA", "LF", "IPM", "ALIE"],
-    "reg": [0, 1],
-    "adv_reg": [0, 1],
-    "worker_steps": [1, 2],
-    "momentum": [0.0, 0.9],
-}
+EXPERIMENT = 1
+
+if EXPERIMENT == 1:
+    HP_SPACE = {
+        "seed": range(3),
+        "attack": ["NA", "LF", "ALIE"],
+        "reg": [0, 1],
+        "adv_reg": [0, 0.01, 0.1, 1, 10, 100],
+        "adv_strength": [1, 10],
+        "worker_steps": [1, 2],
+    }
+elif EXPERIMENT == 2:
+    HP_SPACE = {
+        "seed": range(5),
+        "attack": ["NA", "LF", "IPM", "ALIE"],
+        "reg": [0, 1],
+        "adv_reg": [0, 1],
+        "worker_steps": [1, 2],
+        "momentum": [0.0, 0.9],
+    }
 
 # Load experiment name automatically, argparser will handle the rest
-log_dir = EXP_DIR + "adv/"
+log_dir = EXP_DIR + f"adv{EXPERIMENT}/"
 default_hp = ADV_DEFAULT_HP
 
 # Give other jobs a chance to avoid conflicts in file creation
