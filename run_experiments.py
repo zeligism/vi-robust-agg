@@ -27,7 +27,7 @@ GAN_DEFAULT_HP = {
 QUADRATIC_DEFAULT_HP = {
     "epochs": 50,
     "batch_size": 16,
-    "lr": 1e-3,
+    "lr": 1e-4,
     "n": 20,
     "f": 4,
     "quadratic_players": 2,

@@ -95,6 +95,5 @@ def reset_logger():
 
     debug_logger = logging.getLogger("debug")
     while len(debug_logger.handlers) > 0:
-        debug_logger.info("Bye.")
         debug_logger.handlers[0].close()
         debug_logger.removeHandler(debug_logger.handlers[0])
