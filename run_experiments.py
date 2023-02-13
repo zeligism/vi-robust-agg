@@ -39,9 +39,9 @@ QUADRATIC_DEFAULT_HP = {
 
 # Hyperparameters search space
 HP_SPACE = {
-    "seed": range(1),
-    "attack": ["NA", "IPM", "ALIE"],
-    "worker_steps": [1],
+    "seed": range(5),
+    "attack": ["NA", "LF", "IPM", "ALIE"],
+    "worker_steps": [1, 2],
 }
 
 # Load experiment name automatically, argparser will handle the rest
