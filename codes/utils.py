@@ -90,10 +90,11 @@ def initialize_logger(log_root):
 def reset_logger():
     json_logger = logging.getLogger("stats")
     while len(json_logger.handlers) > 0:
-        json_logger.handlers[0].stream.close()
+        json_logger.handlers[0].close()
         json_logger.removeHandler(json_logger.handlers[0])
 
     debug_logger = logging.getLogger("debug")
     while len(debug_logger.handlers) > 0:
-        debug_logger.handlers[0].stream.close()
+        debug_logger.info("Bye.")
+        debug_logger.handlers[0].close()
         debug_logger.removeHandler(debug_logger.handlers[0])
