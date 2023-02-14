@@ -534,7 +534,7 @@ class TorchWorkerWithAdversary(TorchWorker):
     A worker with an adversary.
     """
 
-    def __init__(self, reg: float = 0., adv_reg: float = 1e10, *args, **kwargs):
+    def __init__(self, reg: float = 0., adv_reg: float = 1e10, scaled_reg: bool = True, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if not isinstance(self.model, torch.nn.Module):
             self.model = self.model()
@@ -545,6 +545,9 @@ class TorchWorkerWithAdversary(TorchWorker):
         self.optimizer = self.optimizers["all"]  # dummy optimizer for passing grads
         self.reg = reg
         self.adv_reg = adv_reg
+        if scaled_reg:
+            self.reg /= sum(p.numel() for p in self.model.model.parameters())
+            self.adv_reg /= sum(p.numel() for p in self.model.adversary.parameters())
 
     def __str__(self) -> str:
         return f"TorchWorkerWithAdversary [{self.worker_id}]"
