@@ -546,8 +546,8 @@ class TorchWorkerWithAdversary(TorchWorker):
         self.reg = reg
         self.adv_reg = adv_reg
         if scaled_reg:
-            self.reg /= sum(p.numel() for p in self.model.model.parameters())
-            self.adv_reg /= sum(p.numel() for p in self.model.adversary.parameters())
+            self.reg /= sum(p.numel() for p in self.model.model.parameters())**0.5
+            self.adv_reg /= sum(p.numel() for p in self.model.adversary.parameters())**0.5
 
     def __str__(self) -> str:
         return f"TorchWorkerWithAdversary [{self.worker_id}]"
