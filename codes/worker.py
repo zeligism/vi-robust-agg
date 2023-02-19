@@ -534,7 +534,7 @@ class TorchWorkerWithAdversary(TorchWorker):
     A worker with an adversary.
     """
 
-    def __init__(self, reg: float = 0., adv_reg: float = 1e10, scaled_reg: bool = True, *args, **kwargs):
+    def __init__(self, reg: float = 0., adv_reg: float = 1e10, scaled_reg: bool = False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if not isinstance(self.model, torch.nn.Module):
             self.model = self.model()
