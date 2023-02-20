@@ -46,10 +46,9 @@ elif EXPERIMENT == 2:
 elif EXPERIMENT == 3:
     HP_SPACE = {
         "seed": range(3),
-        "attack": ["NA", "LF", "IPM", "ALIE"],
-        "agg": ["avg", "krum", "rfa"],
-        "reg": [0, 0.01],
-        "adv_reg": [0, 1],
+        "attack": ["NA", "LF", "BF", "IPM", "ALIE"],
+        "reg": [0],
+        "adv_reg": [1e-2, 1e0, 1e2],
     }
 
 # Load experiment name automatically, argparser will handle the rest
@@ -68,10 +67,11 @@ for hp_combination in product(*HP_SPACE.values()):
     ### Experiment setup 1 ###
     # sgd + robust aggregator
     args = get_args(namespace=Namespace(**args_dict))
+    args.agg = "rfa"
     args.bucketing = 2
     current_log_dir = log_dir + f"sgd_robust/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_seed{args.seed}"
-    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_advstr{args.adv_strength}_wsteps{args.worker_steps}_m{args.momentum}"
+    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_m{args.momentum}"
     # Skip if another job already started on this
     if not os.path.exists(current_log_dir):
         main(args, current_log_dir, args.epochs, 10**10)
@@ -82,10 +82,11 @@ for hp_combination in product(*HP_SPACE.values()):
     # momentum/adam worker + robust aggregator
     args = get_args(namespace=Namespace(**args_dict))
     args.momentum = 0.9
+    args.agg = "rfa"
     args.bucketing = 2
     current_log_dir = log_dir + f"adam_robust/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_seed{args.seed}"
-    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_advstr{args.adv_strength}_wsteps{args.worker_steps}_m{args.momentum}"
+    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_m{args.momentum}"
     # Skip if another job already started on this
     if not os.path.exists(current_log_dir):
         main(args, current_log_dir, args.epochs, 10**10)
@@ -99,7 +100,7 @@ for hp_combination in product(*HP_SPACE.values()):
     args.agg = "avg"
     current_log_dir = log_dir + f"sgd_cc/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_seed{args.seed}"
-    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_advstr{args.adv_strength}_wsteps{args.worker_steps}_m{args.momentum}"
+    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_m{args.momentum}"
     # Skip if another job already started on this
     if not os.path.exists(current_log_dir):
         main(args, current_log_dir, args.epochs, 10**10)
