@@ -47,7 +47,7 @@ elif EXPERIMENT == 3:
     HP_SPACE = {
         "seed": range(3),
         "attack": ["NA", "LF", "BF", "IPM", "ALIE"],
-        "reg": [0],
+        "reg": [0, 0.2],
         "adv_reg": [1e-2, 1e0, 1e2],
     }
 
