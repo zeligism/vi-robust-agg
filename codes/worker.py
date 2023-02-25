@@ -274,9 +274,9 @@ class GANWorker(TorchWorker):
     def _compute_gradient(self, recompute_state={}) -> Tuple[float, int]:
         D_metrics = {}
         G_metrics = {}
-        # XXXXXXXX
-        self.worker_steps = self.D_iters if (self.num_iters + 1) % (self.D_iters + 1) > 0 else 1
-        # XXXXXXXX
+        # # XXXXXXXX
+        # self.worker_steps = self.D_iters if (self.num_iters + 1) % (self.D_iters + 1) > 0 else 1
+        # # XXXXXXXX
         for _ in range(self.worker_steps):
             if (self.num_iters + 1) % (self.D_iters + 1) > 0:
                 ### Train discriminator ###
