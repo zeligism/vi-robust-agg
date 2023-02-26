@@ -316,7 +316,7 @@ class ConditionalResNetGAN(nn.Module):
                  D_features=64, G_features=64,
                  image_size=32, channels=3,
                  cond_dim=0, num_classes=10,
-                 use_sn=False):
+                 use_sn=True):
         super().__init__()
         self.num_latents = num_latents
         self.channels = channels
