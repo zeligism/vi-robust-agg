@@ -232,6 +232,40 @@ class AdamWorker(TorchWorker):
         return torch.cat(layer_gradients)
 
 
+# class ExtraGradientWorker(TorchWorker):
+#     def __init__(self, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+
+#     def __str__(self) -> str:
+#         return f"ExtraGradientWorker [{self.worker_id}]"
+
+#     def _save_grad(self) -> None:
+#         for group in self.optimizer.param_groups:
+#             for p in group["params"]:
+#                 param_state = self.state[p]
+#                 if p.grad is None:
+#                     continue
+#                 if "mid" not in param_state:
+#                     param_state["prev"] = torch.clone(p).detach()
+#                     param_state["mid"] = torch.clone(p).detach()
+#                     param_state['steps'] = 1
+#                 else:
+#                     param_state["prev"] = torch.clone(param_state["mid"]).detach()
+#                     param_state["mid"] = torch.clone(p).detach()
+#                     param_state['steps'] += 1
+
+#     def _get_saved_grad(self) -> torch.Tensor:
+#         layer_gradients = []
+#         for group in self.optimizer.param_groups:
+#             for p in group["params"]:
+#                 param_state = self.state[p]
+#                 if "mid" not in param_state:
+#                     continue
+#                 g = param_state["mid"] - param_state["prev"] + p.grad
+#                 layer_gradients.append(g.data.view(-1))
+#         return torch.cat(layer_gradients)
+
+
 ###############################################################################
 class GANWorker(TorchWorker):
     """
@@ -424,16 +458,6 @@ class GANWorker(TorchWorker):
         return {'G->D(G(z))': D_fake.mean().item()}
 
 
-class GANMomentumWorker(GANWorker, MomentumWorker):
-    def __str__(self) -> str:
-        return f"GANMomentumWorker [{self.worker_id}]"
-
-
-class GANAdamWorker(GANWorker, AdamWorker):
-    def __str__(self) -> str:
-        return f"GANAdamWorker [{self.worker_id}]"
-
-
 ###############################################################################
 class QuadraticGameWorker(TorchWorker):
     """
@@ -519,16 +543,6 @@ class QuadraticGameWorker(TorchWorker):
             self._set_model_state(self.prev_state)
 
         return self.results
-
-
-class QuadraticGameMomentumWorker(QuadraticGameWorker, MomentumWorker):
-    def __str__(self) -> str:
-        return f"QuadraticGameMomentumWorker [{self.worker_id}]"
-
-
-class QuadraticGameAdamWorker(QuadraticGameWorker, AdamWorker):
-    def __str__(self) -> str:
-        return f"QuadraticGameAdamWorker [{self.worker_id}]"
 
 
 ###############################################################################
@@ -632,6 +646,29 @@ class TorchWorkerWithAdversary(TorchWorker):
             self._set_model_state(self.prev_state)
 
         return self.results
+
+
+###############################################################################
+### Extend Classes ###
+
+class GANMomentumWorker(GANWorker, MomentumWorker):
+    def __str__(self) -> str:
+        return f"GANMomentumWorker [{self.worker_id}]"
+
+
+class GANAdamWorker(GANWorker, AdamWorker):
+    def __str__(self) -> str:
+        return f"GANAdamWorker [{self.worker_id}]"
+
+
+class QuadraticGameMomentumWorker(QuadraticGameWorker, MomentumWorker):
+    def __str__(self) -> str:
+        return f"QuadraticGameMomentumWorker [{self.worker_id}]"
+
+
+class QuadraticGameAdamWorker(QuadraticGameWorker, AdamWorker):
+    def __str__(self) -> str:
+        return f"QuadraticGameAdamWorker [{self.worker_id}]"
 
 
 class MomentumWorkerWithAdversary(TorchWorkerWithAdversary, MomentumWorker):

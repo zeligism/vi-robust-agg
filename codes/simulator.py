@@ -48,6 +48,8 @@ class ParallelTrainer(DistributedSimulatorBase):
         metrics: dict,
         use_cuda: bool,
         debug: bool,
+        extragradient: bool = False,
+        optimistic: bool = False,
     ):
         """
         Args:
@@ -68,21 +70,28 @@ class ParallelTrainer(DistributedSimulatorBase):
         self.max_batches_per_epoch = max_batches_per_epoch
         self.omniscient_callbacks = []
         self.random_states = {}
+        self.extragradient = extragradient
+        self.optimistic = optimistic
         super().__init__(metrics, use_cuda, debug)
 
-    def aggregation_and_update(self):
+    def aggregation_and_update(self, aggregated=None):
         # If there are Byzantine workers, ask them to craft attacks based on the updated models.
         for omniscient_attacker_callback in self.omniscient_callbacks:
             omniscient_attacker_callback()
 
-        gradients = self.parallel_get(lambda w: w.get_gradient())
-        aggregated = self.aggregator(gradients)
+        if aggregated is None:
+            gradients = self.parallel_get(lambda w: w.get_gradient())
+            aggregated = self.aggregator(gradients)
 
         # Assume that the model and optimizers are shared among workers.
         self.server.set_gradient(aggregated)
         self.server.apply_gradient()
+        # self.update_moments()
 
-        # --------- update workers' momentum ---------#
+        return aggregated
+
+    def update_moments(self):
+
         def get_states(w, state):
             flat_states = []
             for group in w.optimizer.param_groups:
@@ -117,7 +126,6 @@ class ParallelTrainer(DistributedSimulatorBase):
                 i = j
 
         self.parallel_call(set_aggregate_momentum)
-        # -----------------------------#
 
     def train(self, epoch):
         self.debug_logger.info(f"Train epoch {epoch}")
@@ -131,15 +139,26 @@ class ParallelTrainer(DistributedSimulatorBase):
                     param.copy_(global_param.clone().detach())
 
         progress = 0
+        prev_mid_aggregated = None  # TODO: make attr and put at init?
         self.parallel_call(resync_params)
         for batch_idx in range(self.max_batches_per_epoch):
             try:
                 self._run_pre_batch_hooks(epoch, batch_idx)
-                results = self.parallel_get(lambda w: w.compute_gradient())
-                self.aggregation_and_update()
+                if self.extragradient:
+                    self.server.save_param()  # orig params
+
+                if self.optimistic and prev_mid_aggregated is not None:
+                    self.aggregation_and_update(prev_mid_aggregated)  # prev mid grad
+                else:
+                    results = self.parallel_get(lambda w: w.compute_gradient())  # orig grad
+                    self.aggregation_and_update()
                 self.parallel_call(resync_params)
-                # print("adv", next(iter(self.server.model.adversary.parameters())).mean().item())
-                # print("model", next(iter(self.server.model.model.parameters())).mean().item())
+
+                if self.extragradient:
+                    results = self.parallel_get(lambda w: w.compute_gradient())  # mid grad
+                    self.server.load_param()  # orig params
+                    prev_mid_aggregated = self.aggregation_and_update()
+                    self.parallel_call(resync_params)
 
                 progress += sum(res["length"] for res in results)
                 if batch_idx % self.log_interval == 0:

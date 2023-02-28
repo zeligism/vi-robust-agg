@@ -93,6 +93,8 @@ def get_args(namespace=None):
     parser.add_argument("--max-batches-per-epoch", type=int, default=10**10, help="maximum batches per epoch")
     parser.add_argument("--epochs", type=int, default=3, help="Number of epochs")
     parser.add_argument("--worker-steps", type=int, default=1, help="Number of client steps before agg")
+    parser.add_argument("--extragradient", action="store_true", default=False)
+    parser.add_argument("--optimistic", action="store_true", default=False)
 
     parser.add_argument("-n", type=int, help="Number of workers")
     parser.add_argument("-f", type=int, help="Number of Byzantine workers.")
@@ -574,6 +576,8 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         metrics=metrics,
         use_cuda=args.use_cuda,
         debug=args.debug,
+        extragradient=args.extragradient,
+        optimistic=args.optimistic,
         **trainer_kwargs,
     )
 

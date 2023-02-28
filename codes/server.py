@@ -5,6 +5,7 @@ class TorchServer(object):
     def __init__(self, optimizer: torch.optim.Optimizer, model):
         self.optimizer = optimizer
         self.model = model
+        self.param_cache = {}
 
     def apply_gradient(self) -> None:
         self.optimizer.step()
@@ -20,3 +21,13 @@ class TorchServer(object):
                 g = gradient[beg:end].reshape_as(p)
                 p.grad.copy_(g.clone().detach())
                 beg = end
+
+    def save_param(self) -> None:
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                self.param_cache[p] = p.data.clone().detach()
+
+    def load_param(self) -> None:
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                p.data.copy_(self.param_cache[p])
