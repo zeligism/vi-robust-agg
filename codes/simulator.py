@@ -384,6 +384,7 @@ class ParallelTrainerCC(ParallelTrainer):
         self.real_check = real_check
         self.tolerance = 0.5
         self.banned = set()
+        self.previous_validators = []
         print("--- Check of Computation ---")
 
     def aggregation_and_update(self):
@@ -393,66 +394,76 @@ class ParallelTrainerCC(ParallelTrainer):
 
         #-------- Check Computation --------#
         # sample validators and targets
-        shuffled = torch.randperm(len(self.workers)).tolist()
-        shuffled_notbanned = [w for w in shuffled if w not in self.banned]
-        sampled = shuffled_notbanned[:2 * self.num_peers]
-        if len(shuffled_notbanned) == len(sampled):
-            self.num_peers = self.num_peers // 2
-            if self.debug:
-                print(f"Reducing num of peers by half (num_peers = {self.num_peers}).")
-            # TODO: set validators and targets to [] and continue as in else?
-            gradients = self.parallel_get(lambda w: w.get_gradient() if w not in self.banned else None)
-            aggregated = self.aggregator([g for g in gradients if g is not None])
-        else:
-            validators, targets = sampled[0::2], sampled[1::2]
-            if self.debug:
-                print(f"validators = {validators}, targets = {targets}")
-
-            def sends_grad(w):
-                return w.worker_id not in self.banned and w.worker_id not in validators
-
-            gradients = self.parallel_get(lambda w: w.get_gradient() if sends_grad(w) else None)
-            aggregated = self.aggregator([g for g in gradients if g is not None])
-
-            if self.real_check:
-                orig_rng_state = torch.get_rng_state()
-                for validator, target in zip(validators, targets):
-                    # Get target's state
-                    if "data" not in self.workers[target].prev_state \
-                            or len(self.workers[target].prev_state["data"]) == 0:
-                        if self.debug:
-                            print("Skipping validation as target's previous iterate is data-independent.")
-                        continue
-                    prev_target_state = deepcopy(self.workers[target].prev_state)
-                    # The validator recomputes the grad at target's state and checks for significant mismatch
-                    target_grad = gradients[target]
-                    self.workers[validator].compute_gradient(recompute_state=prev_target_state)
-                    target_grad_by_validator = self.workers[validator].get_gradient()
-                    mismatch = torch.linalg.vector_norm(target_grad - target_grad_by_validator, ord=2).item()
-                    norm = torch.linalg.vector_norm(target_grad, ord=2).item()
-                    rel_error = float('inf') if norm == 0 else mismatch / norm
-                    if rel_error > self.tolerance:
-                        self.banned.add(validator)
-                        self.banned.add(target)
-                        if self.debug:
-                            print(f"Banning worker {validator} and {target}"
-                                  f" (reason: {validator} accused {target}, rel_error={rel_error})")
-                torch.set_rng_state(orig_rng_state)
+        while True:
+            shuffled = torch.randperm(len(self.workers)).tolist()
+            shuffled_filtered = [
+                w for w in shuffled
+                if w not in self.banned and w not in self.previous_validators
+            ]
+            sampled = shuffled_filtered[:2 * self.num_peers]
+            if len(shuffled_filtered) == len(sampled):
+                # num of sampled peers should be less than total number of workers,
+                # otherwise we might ban them all!
+                self.num_peers = self.num_peers // 2
+                validators, targets = [], []
+                if self.num_peers == 0:
+                    break  # no more peers :(
             else:
-                GoodWorker = type(self.workers[0])  # worker 0 is a ref for good worker
-                for validator, target in zip(validators, targets):
-                    if isinstance(validator, GoodWorker) and isinstance(target, GoodWorker):
-                        # good workers don't accuse each other
-                        pass
-                    elif not isinstance(validator, GoodWorker) and not isinstance(target, GoodWorker):
-                        # bad workers don't accuse each other
-                        pass
-                    else:
-                        if self.debug:
-                            print(f"Banning worker {validator} and {target}.")
-                        # good workers accuse bad workers, and bad workers accuse good workers.
-                        self.banned.add(validator)
-                        self.banned.add(target)
+                validators, targets = sampled[0::2], sampled[1::2]
+                break
+
+        self.previous_validators = validators
+
+        if self.debug:
+            print(f"validators = {validators}, targets = {targets}")
+
+        def sends_grad(w):
+            return w.worker_id not in self.banned and w.worker_id not in validators
+
+        gradients = self.parallel_get(lambda w: w.get_gradient() if sends_grad(w) else None)
+        aggregated = self.aggregator([g for g in gradients if g is not None])
+
+        if self.real_check:
+            orig_rng_state = torch.get_rng_state()
+            for validator, target in zip(validators, targets):
+                # Get target's state
+                if "data" not in self.workers[target].prev_state \
+                        or len(self.workers[target].prev_state["data"]) == 0:
+                    if self.debug:
+                        print("Skipping validation as target's previous iterate is data-independent.")
+                    continue
+                prev_target_state = deepcopy(self.workers[target].prev_state)
+                # The validator recomputes the grad at target's state and checks for significant mismatch
+                target_grad = gradients[target]
+                self.workers[validator].compute_gradient(recompute_state=prev_target_state)
+                target_grad_by_validator = self.workers[validator].get_gradient()
+                mismatch = torch.linalg.vector_norm(target_grad - target_grad_by_validator, ord=2).item()
+                norm = torch.linalg.vector_norm(target_grad, ord=2).item()
+                rel_error = float('inf') if norm == 0 else mismatch / norm
+                if rel_error > self.tolerance:
+                    self.banned.add(validator)
+                    self.banned.add(target)
+                    if self.debug:
+                        print(f"Banning worker {validator} and {target}"
+                              f" (reason: {validator} accused {target}, rel_error={rel_error})")
+            torch.set_rng_state(orig_rng_state)
+        else:
+            GoodWorker = type(self.workers[0])  # worker 0 is a ref for good worker
+            for validator, target in zip(validators, targets):
+                validator_is_good = isinstance(self.workers[validator], GoodWorker)
+                target_is_good = isinstance(self.workers[target], GoodWorker)
+                if validator_is_good and target_is_good:
+                    # good workers don't accuse each other
+                    pass
+                elif not validator_is_good and not target_is_good:
+                    # bad workers don't accuse each other
+                    pass
+                else:
+                    if self.debug:
+                        print(f"Banning worker {validator} and {target}.")
+                    # good workers accuse bad workers, and bad workers accuse good workers.
+                    self.banned.add(validator)
+                    self.banned.add(target)
 
         #--------------------------------#
 
