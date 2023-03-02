@@ -16,14 +16,14 @@ from utils import EXP_DIR
 
 # Default hyperparameters
 ADV_DEFAULT_HP = {
-    "epochs": 30,
+    "epochs": 50,
     "n": 20,
     "f": 4,
     "lr": 1e-2,
     "batch_size": 32,
 }
 
-EXPERIMENT = 3
+EXPERIMENT = 4
 
 if EXPERIMENT == 1:
     HP_SPACE = {
@@ -47,8 +47,17 @@ elif EXPERIMENT == 3:
     HP_SPACE = {
         "seed": range(3),
         "attack": ["NA", "LF", "BF", "IPM", "ALIE"],
-        "reg": [0, 0.2],
+        "reg": [0, 0.5],
         "adv_reg": [1e-2, 1e0, 1e2],
+    }
+
+elif EXPERIMENT == 4:
+    HP_SPACE = {
+        "seed": range(3),
+        "attack": ["NA", "LF", "BF", "IPM", "ALIE"],
+        "reg": [0, 0.5],
+        "adv_reg": [0, 1e2],
+        "worker_steps": [1, 2],
     }
 
 # Load experiment name automatically, argparser will handle the rest
@@ -69,9 +78,9 @@ for hp_combination in product(*HP_SPACE.values()):
     args = get_args(namespace=Namespace(**args_dict))
     args.agg = "rfa"
     args.bucketing = 2
-    current_log_dir = log_dir + f"sgd_robust/"
+    current_log_dir = log_dir + f"SGDA_RA/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_seed{args.seed}"
-    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_m{args.momentum}"
+    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_m{args.momentum}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
     if not os.path.exists(current_log_dir):
         main(args, current_log_dir, args.epochs, 10**10)
@@ -84,9 +93,9 @@ for hp_combination in product(*HP_SPACE.values()):
     args.momentum = 0.9
     args.agg = "rfa"
     args.bucketing = 2
-    current_log_dir = log_dir + f"adam_robust/"
+    current_log_dir = log_dir + f"M_SGDA_RA/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_seed{args.seed}"
-    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_m{args.momentum}"
+    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_m{args.momentum}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
     if not os.path.exists(current_log_dir):
         main(args, current_log_dir, args.epochs, 10**10)
@@ -94,15 +103,30 @@ for hp_combination in product(*HP_SPACE.values()):
         print(f"Experiment {current_log_dir} already exists.")
 
     ### Experiment setup 3 ###
-    # sgd + avg aggregator + check of computation
+    # sgd + extragradient + trimmed mean
     args = get_args(namespace=Namespace(**args_dict))
-    args.num_peers = 1
-    args.agg = "avg"
-    current_log_dir = log_dir + f"sgd_cc/"
+    args.agg = "tm"
+    args.extragradient = True
+    current_log_dir = log_dir + f"SEG_TM/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_seed{args.seed}"
-    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_m{args.momentum}"
+    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_m{args.momentum}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
     if not os.path.exists(current_log_dir):
         main(args, current_log_dir, args.epochs, 10**10)
     else:
         print(f"Experiment {current_log_dir} already exists.")
+
+    ### Experiment setup 4 ###
+    # sgd + avg aggregator + check of computation
+    args = get_args(namespace=Namespace(**args_dict))
+    args.num_peers = 1
+    args.agg = "avg"
+    current_log_dir = log_dir + f"SGDA_CC/"
+    current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_seed{args.seed}"
+    current_log_dir += f"_reg{args.reg}_advreg{args.adv_reg}_m{args.momentum}_wsteps{args.worker_steps}"
+    # Skip if another job already started on this
+    if not os.path.exists(current_log_dir):
+        main(args, current_log_dir, args.epochs, 10**10)
+    else:
+        print(f"Experiment {current_log_dir} already exists.")
+
