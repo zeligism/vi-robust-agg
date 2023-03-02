@@ -387,7 +387,7 @@ class ParallelTrainerCC(ParallelTrainer):
         self.previous_validators = []
         print("--- Check of Computation ---")
 
-    def aggregation_and_update(self):
+    def aggregation_and_update(self, aggregated=None):
         # If there are Byzantine workers, ask them to craft attacks based on the updated models.
         for omniscient_attacker_callback in self.omniscient_callbacks:
             omniscient_attacker_callback()
@@ -420,8 +420,9 @@ class ParallelTrainerCC(ParallelTrainer):
         def sends_grad(w):
             return w.worker_id not in self.banned and w.worker_id not in validators
 
-        gradients = self.parallel_get(lambda w: w.get_gradient() if sends_grad(w) else None)
-        aggregated = self.aggregator([g for g in gradients if g is not None])
+        if aggregated is None:
+            gradients = self.parallel_get(lambda w: w.get_gradient() if sends_grad(w) else None)
+            aggregated = self.aggregator([g for g in gradients if g is not None])
 
         if self.real_check:
             orig_rng_state = torch.get_rng_state()
