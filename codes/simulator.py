@@ -81,6 +81,8 @@ class ParallelTrainer(DistributedSimulatorBase):
 
         if aggregated is None:
             gradients = self.parallel_get(lambda w: w.get_gradient())
+            # XXX: remove a random gradient!
+            gradients.pop(torch.randint(len(gradients), (1,)).item())
             aggregated = self.aggregator(gradients)
 
         # Assume that the model and optimizers are shared among workers.
