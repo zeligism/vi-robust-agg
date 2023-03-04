@@ -16,8 +16,8 @@ from utils import EXP_DIR
 
 # Default hyperparameters for both experiments
 GAN_DEFAULT_HP = {
-    "epochs": 100,
-    "batch_size": 8,
+    "epochs": 50,
+    "batch_size": 32,
     "lr": 1e-3,
     "n": 20,
     "f": 4,
@@ -41,7 +41,7 @@ QUADRATIC_DEFAULT_HP = {
 HP_SPACE = {
     "seed": range(1),
     "attack": ["NA", "LF", "IPM", "ALIE"],
-    "worker_steps": [4],
+    "worker_steps": [4],  # 'D_iters + 1' or 'quadratic_players' for full minimax step per agg
 }
 
 # Load experiment name automatically, argparser will handle the rest
@@ -61,8 +61,9 @@ for hp_combination in product(*HP_SPACE.values()):
 
     ### Experiment setup 1 ###
     args = get_args(namespace=Namespace(**args_dict))
-    args.agg = "tm"
-    current_log_dir = log_dir + f"SGDA_TM/"
+    args.agg = "rfa"
+    args.bucketing = 2
+    current_log_dir = log_dir + f"SGDA_RA/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
     if not os.path.exists(current_log_dir):
@@ -76,7 +77,9 @@ for hp_combination in product(*HP_SPACE.values()):
         args.betas = (0.5, 0.9)
     else:
         args.momentum = 0.9
-    current_log_dir = log_dir + f"M_SGDA/"
+    args.agg = "rfa"
+    args.bucketing = 2
+    current_log_dir = log_dir + f"M_SGDA_RA/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
     if not os.path.exists(current_log_dir):
@@ -97,28 +100,12 @@ for hp_combination in product(*HP_SPACE.values()):
 
     ### Experiment setup 4 ###
     args = get_args(namespace=Namespace(**args_dict))
-    args.num_peers = 1
     args.extragradient = True
-    current_log_dir = log_dir + f"SEG_CC/"
+    args.agg = "tm"
+    current_log_dir = log_dir + f"SEG_TM/"
     current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
     # Skip if another job already started on this
     if not os.path.exists(current_log_dir):    
-        main(args, current_log_dir, args.epochs, 10**10)
-    else:
-        print(f"Experiment {current_log_dir} already exists.")
-
-    ### Experiment setup 5 ###
-    args = get_args(namespace=Namespace(**args_dict))
-    args.num_peers = 1
-    args.extragradient = True
-    if EXP == "gan":
-        args.betas = (0.5, 0.9)
-    else:
-        args.momentum = 0.9
-    current_log_dir = log_dir + f"M_SEG_CC/"
-    current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
-    # Skip if another job already started on this
-    if not os.path.exists(current_log_dir):
         main(args, current_log_dir, args.epochs, 10**10)
     else:
         print(f"Experiment {current_log_dir} already exists.")
