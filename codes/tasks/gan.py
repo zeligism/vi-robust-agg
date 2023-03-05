@@ -350,33 +350,46 @@ def mnist32(
     batch_size,
     shuffle=None,
     sampler_callback=None,
-    dataset_cls=datasets.MNIST,
+    dataset_cls=None,  # ignore
     drop_last=True,
+    dataset_name="cifar10",  # use this
     **loader_kwargs
 ):
-    # force set sampler to be None
-    # sampler_callback = None
+    if dataset_name == "mnist":
+        dataset_cls = datasets.MNIST
+        transform = transforms.Compose([
+            transforms.Grayscale(3),
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            # transforms.Normalize((0.1307,), (0.3081,)),
+            transforms.Normalize((0.5,), (0.5,)),
+        ])
 
-    dataset = dataset_cls(
-        data_dir,
-        train=train,
-        download=download,
-        transform=transforms.Compose(
-            [
-                transforms.Grayscale(3),
-                transforms.Resize(32),
+    elif dataset_name == "cifar10":
+        dataset_cls = datasets.CIFAR10
+        if train:
+            transform = transforms.Compose([
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomCrop(32, padding=4),
                 transforms.ToTensor(),
-                # transforms.Normalize((0.1307,), (0.3081,)),
                 transforms.Normalize((0.5,), (0.5,)),
-            ]
-        ),
-    )
+            ])
+        else:
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.5,), (0.5,)),
+            ])
+
+    # Create dataset
+    dataset = dataset_cls(root=data_dir, train=train,
+                          download=download, transform=transform)
+    dataset.targets = torch.LongTensor(dataset.targets)
 
     sampler = sampler_callback(dataset) if sampler_callback else None
     log_dict(
         {
             "Type": "Setup",
-            "Dataset": "mnist",
+            "Dataset": dataset_name,
             "data_dir": data_dir,
             "train": train,
             "download": download,
@@ -393,3 +406,4 @@ def mnist32(
         drop_last=drop_last,
         **loader_kwargs,
     )
+
