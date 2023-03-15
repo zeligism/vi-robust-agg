@@ -343,7 +343,7 @@ class ResNetGAN(ConditionalResNetGAN):
         super().__init__(*args, **kwargs)
 
 
-def mnist32(
+def gan_dataset(
     data_dir,
     train,
     download,

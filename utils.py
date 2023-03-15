@@ -65,7 +65,7 @@ from codes.tasks.quadratic import (
     generate_quadratic_game_dataset,
     get_quadratic_loss
 )
-from codes.tasks.gan import mnist32, ResNetGAN, ConditionalResNetGAN
+from codes.tasks.gan import gan_dataset, ResNetGAN, ConditionalResNetGAN
 from codes.gan_utils import tensor_to_np, make_animation, get_GAN_loss_func
 
 QUADRATIC_GAME_DATA = None
@@ -275,7 +275,7 @@ def initialize_worker(
             **kwargs,
         )
     else:
-        dataset = mnist32 if args.gan else mnist
+        dataset = gan_dataset if args.gan else mnist
         train_loader = dataset(
             data_dir=DATA_DIR,
             train=True,
