@@ -6,7 +6,6 @@ import torch
 from torchvision.utils import save_image
 
 from codes.tasks.gan import ResNetGAN, gan_dataset
-from codes.tasks.inception.inception_score import inception_score
 from utils import DATA_DIR
 
 
@@ -16,7 +15,6 @@ def get_args(namespace=None):
     parser.add_argument("-m", "--model-path", type=str, help="Model directory.")
     parser.add_argument("-n", "--num-samples", type=int, default=10000, help="Number of samples to generate.")
     parser.add_argument("-BS", "--batch-size", type=int, default=32, help="Batch size.")
-    parser.add_argument("--inception-score", action="store_true", default=False, help="Compute Inception Score (IS).")
     args = parser.parse_args(namespace=namespace)
     return args
 
@@ -70,11 +68,6 @@ def main(args):
     device = torch.device("cuda:0" if args.use_cuda and torch.cuda.is_available() else "cpu")
     gan_dataset = GAN_Dataset(model_path=args.model_path, num_samples=args.num_samples,
                               batch_size=args.batch_size, device=device)
-    if args.inception_score:
-        score = inception_score(gan_dataset, cuda=args.use_cuda,
-                                batch_size=args.batch_size, resize=True, splits=10)
-        print(f"Inception score = {score}")
-
 
 if __name__ == '__main__':
     args = get_args()
