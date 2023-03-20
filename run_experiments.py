@@ -18,10 +18,10 @@ from utils import EXP_DIR
 # Default hyperparameters for both experiments
 GAN_DEFAULT_HP = {
     "epochs": 50,
-    "batch_size": 32,
+    "batch_size": 64,
     "lr": 1e-3,
-    "n": 20,
-    "f": 4,
+    "n": 10,
+    "f": 2,
     "D_iters": 3,
 }
 
@@ -41,7 +41,7 @@ QUADRATIC_DEFAULT_HP = {
 # Hyperparameters search space
 HP_SPACE = {
     "seed": range(1),
-    "attack": ["NA", "LF", "IPM", "ALIE"],
+    "attack": ["NA", "BF", "LF", "IPM", "ALIE"],
     "worker_steps": [4],  # 'D_iters + 1' or 'quadratic_players' for full minimax step per agg
 }
 
