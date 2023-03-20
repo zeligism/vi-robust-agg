@@ -65,7 +65,7 @@ def run_exp(current_log_dir):
             get_epoch = lambda pth: int(pth.split("model_epoch")[1].split(".")[0])
             model_paths = sorted(model_paths, key=get_epoch)
             args.load_model = model_paths[-1]  # load latest model
-            current_log_dir += f"epoch{get_epoch(args.load_model)}"  # start from a new dir to avoid removing prev dir
+            current_log_dir += f"_epoch{get_epoch(args.load_model)}"  # start from a new dir to avoid removing prev dir
             main(args, current_log_dir, args.epochs, 10**10)
         else:
             print(f"Experiment {current_log_dir} already exists.")
