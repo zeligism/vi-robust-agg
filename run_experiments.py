@@ -53,22 +53,25 @@ default_hp = GAN_DEFAULT_HP if EXP == "gan" else QUADRATIC_DEFAULT_HP
 # Give other jobs a chance to avoid conflicts in file creation
 time.sleep(3 * random())
 
-def run_exp(current_log_dir):
-    current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
-    if not os.path.exists(current_log_dir):
-        main(args, current_log_dir, args.epochs, 10**10)
-    else:
-        gan_output_dir = os.path.join(current_log_dir, "gan_output")
-        model_paths = list(glob.glob(os.path.join(gan_output_dir, "*.pl")))
-        if len(model_paths) > 0:
-            print(f"Continuing training of experiment {current_log_dir}.")
-            get_epoch = lambda pth: int(pth.split("model_epoch")[1].split(".")[0])
-            model_paths = sorted(model_paths, key=get_epoch)
-            args.load_model = model_paths[-1]  # load latest model
-            current_log_dir += f"_epoch{get_epoch(args.load_model)}"  # start from a new dir to avoid removing prev dir
-            main(args, current_log_dir, args.epochs, 10**10)
+def run_exp(exp_log_dir, rel_model_path="gan_output/model_epoch50.pl"):
+    exp_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
+    if not os.path.exists(exp_log_dir):
+        main(args, exp_log_dir, args.epochs, 10**10)
+    elif rel_model_path:
+        model_path = f"{exp_log_dir}/{rel_model_path}"
+        if os.path.exists(model_path):
+            args.load_model = model_path
+            epoch = int(args.load_model.split("model_epoch")[1].split(".")[0])
+            cont_log_dir = f"{exp_log_dir}/epoch{epoch}"  # start from a new dir inside exp dir
+            if not os.path.exists(cont_log_dir):
+                print(f"Continuing training at {cont_log_dir}.")
+                main(args, cont_log_dir, args.epochs, 10**10)
+            else:
+                print(f"Experiment {cont_log_dir} has already been continued.")
         else:
-            print(f"Experiment {current_log_dir} already exists.")
+            print(f"Model {model_path} does not exist.")
+    else:
+        print(f"Experiment {exp_log_dir} already exists.")
 
 for hp_combination in product(*HP_SPACE.values()):
     args_dict = dict(**default_hp, **dict(zip(HP_SPACE.keys(), hp_combination)))
