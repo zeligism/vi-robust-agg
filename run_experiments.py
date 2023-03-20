@@ -52,6 +52,16 @@ default_hp = GAN_DEFAULT_HP if EXP == "gan" else QUADRATIC_DEFAULT_HP
 # Give other jobs a chance to avoid conflicts in file creation
 time.sleep(3 * random())
 
+def run_exp(current_log_dir):
+    current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
+    if args.load_model:
+        epoch = int(args.load_model.split("model_epoch")[1].split(".")[0])
+        current_log_dir += f"epoch{epoch}"
+    if not os.path.exists(current_log_dir):
+        main(args, current_log_dir, args.epochs, 10**10)
+    else:
+        print(f"Experiment {current_log_dir} already exists.")
+
 for hp_combination in product(*HP_SPACE.values()):
     args_dict = dict(**default_hp, **dict(zip(HP_SPACE.keys(), hp_combination)))
     if args_dict["attack"] == "NA":
@@ -64,12 +74,7 @@ for hp_combination in product(*HP_SPACE.values()):
     args.agg = "rfa"
     args.bucketing = 2
     current_log_dir = log_dir + f"SGDA_RA/"
-    current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
-    # Skip if another job already started on this
-    if not os.path.exists(current_log_dir):
-        main(args, current_log_dir, args.epochs, 10**10)
-    else:
-        print(f"Experiment {current_log_dir} already exists.")
+    run_exp(current_log_dir)
 
     ### Experiment setup 2 ###
     args = get_args(namespace=Namespace(**args_dict))
@@ -80,34 +85,19 @@ for hp_combination in product(*HP_SPACE.values()):
     args.agg = "rfa"
     args.bucketing = 2
     current_log_dir = log_dir + f"M_SGDA_RA/"
-    current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
-    # Skip if another job already started on this
-    if not os.path.exists(current_log_dir):
-        main(args, current_log_dir, args.epochs, 10**10)
-    else:
-        print(f"Experiment {current_log_dir} already exists.")
+    run_exp(current_log_dir)
 
     ### Experiment setup 3 ###
     args = get_args(namespace=Namespace(**args_dict))
     args.num_peers = 1
     current_log_dir = log_dir + f"SGDA_CC/"
-    current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
-    # Skip if another job already started on this
-    if not os.path.exists(current_log_dir):
-        main(args, current_log_dir, args.epochs, 10**10)
-    else:
-        print(f"Experiment {current_log_dir} already exists.")
+    run_exp(current_log_dir)
 
     ### Experiment setup 4 ###
     args = get_args(namespace=Namespace(**args_dict))
     args.extragradient = True
     args.agg = "tm"
     current_log_dir = log_dir + f"SEG_TM/"
-    current_log_dir += f"n{args.n}_f{args.f}_{args.agg}_{args.attack}_lr{args.lr}_seed{args.seed}_wsteps{args.worker_steps}"
-    # Skip if another job already started on this
-    if not os.path.exists(current_log_dir):    
-        main(args, current_log_dir, args.epochs, 10**10)
-    else:
-        print(f"Experiment {current_log_dir} already exists.")
+    run_exp(current_log_dir)
 
 

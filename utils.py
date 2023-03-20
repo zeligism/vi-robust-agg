@@ -1,6 +1,6 @@
+import os
 import argparse
 import numpy as np
-import os
 import torch
 from collections import Counter
 from PIL import Image
@@ -84,6 +84,7 @@ def get_args(namespace=None):
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--dry-run", action="store_true", default=False)
     parser.add_argument("--identifier", type=str, default="debug", help="")
+    parser.add_argument("--load-model", type=str, default="", help="path to model")
 
     # Experiment configuration
     parser.add_argument("--lr", type=float, default=0.01, help="[HP] learning rate")
@@ -630,7 +631,18 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
 
     ### Run ###
     if not args.dry_run:
+        last_epoch = 0
+        if args.load_model is not None:
+            def load(m):
+                m.load_state_dict(torch.load(args.load_model, map_location=device))
+
+            # load models
+            load(model)
+            trainer.parallel_call(lambda w: load(w.model))
+            last_epoch = int(args.load_model.split("model_epoch")[1].split(".")[0])
+
         for epoch in range(1, EPOCHS + 1):
+            epoch += last_epoch
             trainer.train(epoch)
             if not args.gan:
                 evaluator.evaluate(epoch)
