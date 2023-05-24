@@ -632,7 +632,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
     ### Run ###
     if not args.dry_run:
         last_epoch = 0
-        if args.load_model is not None:
+        if args.load_model:
             def load(m):
                 m.load_state_dict(torch.load(args.load_model, map_location=device))
 

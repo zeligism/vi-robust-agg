@@ -14,39 +14,64 @@ class QuadraticOptimal(_BaseAggregator):
         self.weights = None
 
     def __call__(self, inputs):
-        G = torch.stack(inputs, dim=0)  # Mxd
-        GG = torch.einsum("id,jd->ij", G, G)  # MxM
+        # G = torch.stack(inputs, dim=0)  # Mxd
+        # GG = torch.einsum("id,jd->ij", G, G)  # MxM
 
-        # Momentum for grads and grads-covariance across workers
+        # # Momentum for grads and grads-covariance across workers
+        # if self.G is None:
+        #     self.G = G
+        # if self.GG is None:
+        #     self.GG = GG
+        # self.G = self.betas[0] * self.G + (1 - self.betas[0]) * G
+        # self.GG = self.betas[1] * self.GG + (1 - self.betas[1]) * GG
+        # G = self.G
+        # GG = self.GG
+
+        # # Create a target "validation" grad
+        # if self.target_grad_closure is None:
+        #     target_grad = torch.mean(G, dim=0)  # reduces to fedavg
+        # else:
+        #     target_grad = self.target_grad_closure()
+
+        # # Inverse with regularization, decrease lmbd linearly
+        # eye = torch.eye(*GG.size(), out=torch.empty_like(GG))
+        # GG_inv = torch.linalg.inv(GG + self.lmbd * eye)
+        # self.lmbd /= self.lmbd + 1
+
+        # # weights = (G.T G + lmbd*eye)^-1 G.T target_grad, where here G is actually dxM
+        # weights = torch.einsum("ij,jd,d->i", GG_inv, G, target_grad)
+        # # weights = torch.relu(weights)
+        # if self.weights is None:
+        #     self.weights = weights
+        # self.weights = self.wmomentum * self.weights + (1 - self.wmomentum) * weights
+        # weights = self.weights
+
+        # aggregated_grad = torch.sum(weights.view(-1,1) * G, dim=0)
+
+        self.betas = (0,0)
+        Gval = self.target_grad_closure()
+        G = torch.stack(inputs + [Gval], dim=1)  # dxM, M << d
+        GG = torch.einsum("di,dj->ij", G, G)  # MxM
+        # update estimates with exponential averaging
         if self.G is None:
             self.G = G
         if self.GG is None:
             self.GG = GG
         self.G = self.betas[0] * self.G + (1 - self.betas[0]) * G
         self.GG = self.betas[1] * self.GG + (1 - self.betas[1]) * GG
-        G = self.G
-        GG = self.GG
 
-        # Create a target "validation" grad
-        if self.target_grad_closure is None:
-            target_grad = torch.mean(G, dim=0)  # reduces to fedavg
-        else:
-            target_grad = self.target_grad_closure()
+        eye = torch.eye(*self.GG.size(), out=torch.empty_like(self.GG))
+        GG_inv = torch.linalg.inv(self.GG + self.lmbd * eye)
 
-        # Inverse with regularization, decrease lmbd linearlt
-        eye = torch.eye(*GG.size(), out=torch.empty_like(GG))
-        GG_inv = torch.linalg.inv(GG + self.lmbd * eye)
-        self.lmbd = 1 / (1 + 1 / self.lmbd)
+        # If G = USV.T, where U: dxd, S: dxM (M singluar values), and V: MxM, then
+        # orthogonal proj = G (G.T G)^-1 G.T = USV.T (VS^2V.T)^-1 VSU.T = US S^-2 SU.T = UU.T
+        # weights = torch.einsum("mn,ng,g->m", GG_inv, self.G.T, torch.mean(self.G, dim=1))
+        # aggregated_grad = torch.einsum("dm,m->d", self.G, weights)
 
-        # weights = (G.T G + lmbd*eye)^-1 G.T target_grad
-        weights = torch.einsum("ij,jd,d->i", GG_inv, G, target_grad)
-        # weights = torch.relu(weights)
-        if self.weights is None:
-            self.weights = weights
-        self.weights = self.wmomentum * self.weights + (1 - self.wmomentum) * weights
-        weights = self.weights
+        # ???
+        aggregated_grad = Gval.pow(2).sum()**-1 * (Gval * torch.mean(self.G, dim=1)).sum() * Gval
 
-        return torch.sum(weights.view(-1,1) * G, dim=0)
+        return aggregated_grad
 
     def __str__(self):
         return "QuadraticOptimal"
