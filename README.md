@@ -33,15 +33,15 @@ We also provide job scripts for running the experiments on SLURM, which can be e
 ### Evaluating GAN experiments
 Instead of sharing all model checkpoints, we provide code for sampling from the trained GAN model, which can be run with:
 ```
-    sh gan_fid.sh <epochs>
+    sh gan_fid.sh <EPOCHS>
 ```
-where `<epochs>` denotes the model after running this number of epochs. The training script saves the model after every `--save-model-every` epochs.
-The experiments log folders have to be in a folder called `outputs/gan/` relative to `gan_fid.sh`. This is created by default when running GAN experiments, and can be easily adjusted from `gan_fid.sh`.
+where `<EPOCHS>` specifies the model after running this number of epochs. The training script saves the model after every `--save-model-every` epochs.
+The log folders have to be in a folder called `outputs/gan/` relative to `gan_fid.sh`. This is created by default when running the GAN experiments, and can be easily adjusted from `gan_fid.sh`.
 
-The FIDs will be printed in the terminal. The FIDs can be collected automatically by saving the outputs in some file and then parsing it at the end. However, we have collected the FIDs manually in this experiment and hardcoded them in the plotting notebook.
+The FIDs will be printed to stdout, but they can be collected automatically by directing the outputs to some file and then parsing it at the end. However, we have collected the FIDs manually and hardcoded them in the plotting notebook.
 
 ### Plots for adversarial MNIST
-You can reproduce the plots by navigating to Experiment 4 in `plot_adversarial.ipynb` and run the cells (after loading the libraries by running the very first cell in the notebook).
+You can reproduce the plots by navigating to Experiment 4 in `plot_adversarial.ipynb` and running the cells (after loading the libraries by running the very first cell in the notebook).
 
 ### Plots for GAN experiments
 Simply run the cells in `plot_gan.ipynb`.
@@ -51,5 +51,5 @@ The data logs for the adversarial MNIST experiments can be downloaded from [here
 
 
 ## Acknowledgement
-The backbone code was taken from [this repo](https://github.com/epfml/byzantine-robust-noniid-optimizer). The main script is called `utils.py`, which has been heavily changed from the original. The experiments can be run by calling the `main` function from this file, as can be seen from the `run_*.py` scripts.
+The backbone code (the implementation of the robust aggregators in particular) was taken from [this repo](https://github.com/epfml/byzantine-robust-noniid-optimizer). The main script is called `utils.py`, which has been heavily changed from the original. The experiments can be run by calling the `main` function from this file, as can be seen from the `run_*.py` scripts.
 
