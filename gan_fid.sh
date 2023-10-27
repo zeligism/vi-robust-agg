@@ -1,5 +1,5 @@
 num_samples=10000
-epochs=50
+epochs=${1:-50}
 cuda="--device cuda:0"
 #cuda=""
 dataset_stats="datasets/cifar-10-stats.npz"

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=virobagg-g
+#SBATCH --job-name=virobagg-a
 #SBATCH -q gpu-single
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1

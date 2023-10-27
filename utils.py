@@ -406,9 +406,6 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
 
         def init_optimizer(local_model):
             return {
-                # "D": torch.optim.SGD(local_model.D.parameters(), lr=client_lr * 2),
-                # "G": torch.optim.SGD(local_model.G.parameters(), lr=client_lr),
-                # "all": torch.optim.SGD(local_model.parameters(), lr=client_lr),
                 "D": torch.optim.Adam(local_model.D.parameters(), lr=client_lr * 2, betas=(0.5, 0.9)),
                 "G": torch.optim.Adam(local_model.G.parameters(), lr=client_lr, betas=(0.5, 0.9)),
                 "all": torch.optim.Adam(local_model.parameters(), lr=client_lr, betas=(0.5, 0.9)),
@@ -417,15 +414,6 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
         optimizers = [None] * args.n
         use_constructor = True
         server_opt = torch.optim.SGD(model.parameters(), lr=server_lr)
-        # server_opt = torch.optim.Adam(model.parameters(), lr=server_lr, betas=(0.5, 0.9))
-
-        # betas = (0.5, 0.9)
-        # optimizers = [{
-        #     "D": torch.optim.Adam(model.D.parameters(), lr=client_lr * 2, betas=betas),
-        #     "G": torch.optim.Adam(model.G.parameters(), lr=client_lr, betas=betas),
-        #     "all": torch.optim.Adam(model.parameters(), lr=client_lr),
-        # } for _ in range(args.n)]
-        # server_opt = torch.optim.Adam(model.parameters(), lr=server_lr, betas=betas)
 
         loss_func = get_GAN_loss_func()
         # Save GAN snapshots to track progress
@@ -529,42 +517,7 @@ def main(args, LOG_DIR, EPOCHS, MAX_BATCHES_PER_EPOCH):
     else:
         Trainer = ParallelTrainerCC
         trainer_kwargs = {'num_peers': args.num_peers}
-    if args.agg != "qopt":
-        aggregator = get_aggregator(args)
-
-    if args.agg == "qopt":
-
-        class ValidationGradSampler:
-            """
-            Note: `model` is defined outside this scope.
-            For now, implemented only for MNIST (see `run_normal.py`).
-            """
-
-            def __init__(self, model, data_loader):
-                self.model = model
-                self.validation_loader = data_loader
-                self.reset()
-
-            def reset(self):
-                self.data_sampler = iter(self.validation_loader)
-
-            def sample(self, model=None):
-                model = self.model if model is None else model
-                try:
-                    data, target = next(self.data_sampler)
-                    data, target = data.to(device), target.to(device)
-                    output = model(data)
-                    model.zero_grad()
-                    loss_func(output, target).mean().backward()
-                    return torch.cat([p.grad.view(-1) for p in model.parameters() if p.grad is not None])
-                except StopIteration:
-                    self.reset()
-                    return self.sample()
-
-        validation_sampler = ValidationGradSampler(model, mnist(
-            data_dir=DATA_DIR, train=False, download=True,
-            batch_size=args.batch_size, shuffle=True, **kwargs))
-        aggregator = QuadraticOptimal(target_grad_closure=validation_sampler.sample)
+    aggregator = get_aggregator(args)
 
     ### Simulator ###
     trainer = Trainer(

@@ -21,7 +21,7 @@ def get_args(namespace=None):
 
 class GAN_Dataset(torch.utils.data.Dataset):
     def __init__(self, model_init=lambda: ResNetGAN(), model_path="model.pl",
-                 num_samples=10000, batch_size=32, device="cpu"):
+                 num_samples=10000, batch_size=32, device="cpu", savedata=False):
         self.device = device
         self.model_path = model_path
         self.model = model_init().to(self.device)
@@ -31,8 +31,6 @@ class GAN_Dataset(torch.utils.data.Dataset):
         self.fake_data = self.generate_samples(num_samples, batch_size)
         self.real_data = gan_dataset(data_dir=DATA_DIR, train=True,
                                      download=True, batch_size=1)
-        self.save_data(self.fake_data, dirname="fake_data")
-        # self.save_data(self.real_data, dirname="real_data")
 
     def generate_samples(self, num_samples, batch_size):
         data = []
@@ -45,7 +43,11 @@ class GAN_Dataset(torch.utils.data.Dataset):
                 data.append(fake)
         return torch.cat(data)
 
-    def save_data(self, data, dirname="data"):
+    def save_data(self, real_data_dir="real_data", fake_data_dir="fake_data"):
+        # self._save_data(self.real_data, dirname=real_data_dir)  # TODO: not needed
+        self._save_data(self.fake_data, dirname=fake_data_dir)
+
+    def _save_data(self, data, dirname="data"):
         out_dir = os.path.join(os.path.dirname(self.model_path), dirname)
         if os.path.exists(out_dir):
             print("Data already exists at:", out_dir)
@@ -68,6 +70,7 @@ def main(args):
     device = torch.device("cuda:0" if args.use_cuda and torch.cuda.is_available() else "cpu")
     gan_dataset = GAN_Dataset(model_path=args.model_path, num_samples=args.num_samples,
                               batch_size=args.batch_size, device=device)
+    gan_dataset.save_data()
 
 if __name__ == '__main__':
     args = get_args()
