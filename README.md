@@ -3,9 +3,8 @@
 This is the official implementation of the Adversarial MNIST experiments and the CIFAR-10 GAN experiments in [Byzantine-Tolerant Methods for Distributed Variational Inequalities](https://openreview.net/forum?id=ER0bcYXvvo).
 
 
-| SGDA with robust aggregation (RA) vs. SGDA with checks of computation (CC) |  |
-|-|-|
 | ![FID_NA](assets/FID_NA.png) | ![FID_LF](assets/FID_LF.png) |
+|-|-|
 | ![FID_IPM](assets/FID_IPM.png) |  ![FID_ALIE](assets/FID_ALIE.png) |
 
 ## Requirements
