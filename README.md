@@ -31,11 +31,11 @@ CIFAR-10 GAN experiments can be run with:
 We also provide job scripts for running the experiments on SLURM, which can be easily adjusted for your compute cluster. There are also other scripts for running other experiments, but they can be safely ignored.
 
 ### Evaluating GAN experiments
-Instead of sharing all model checkpoints, we provide code for sampling from the trained GAN model, which can be run with:
+We provide a helper script for generating and saving samples from trained GAN models, which can be run with:
 ```
     sh gan_fid.sh <EPOCHS>
 ```
-where `<EPOCHS>` specifies the model after running this number of epochs. The training script saves the model after every `--save-model-every` epochs.
+where `<EPOCHS>` specifies the model after this number of epochs. The training script saves the model after every `--save-model-every` epochs.
 The log folders have to be in a folder called `outputs/gan/` relative to `gan_fid.sh`. This is created by default when running the GAN experiments, and can be easily adjusted from `gan_fid.sh`.
 
 The FIDs will be printed to stdout, but they can be collected automatically by directing the outputs to some file and then parsing it at the end. However, we have collected the FIDs manually and hardcoded them in the plotting notebook.
