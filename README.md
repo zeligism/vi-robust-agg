@@ -13,17 +13,17 @@ It is sufficient to have standard deep learning libraries, such as NumPy, Matplo
     conda create -n NAMEOFMYENV pytorch torchvision torchaudio matplotlib numpy scikit-learn -c pytorch
 ```
 
-In case you want to also run the FID script `gan_fid.sh`, you have to install `pytorch-fid` as well (preferably inside your conda env)
+In case you want to run the script `gan_fid.sh`, you have to install `pytorch-fid` as well (preferably inside your conda env):
 ```
     pip install pytorch-fid
 ```
 
 ## Running the experiments
-Adversarial MNIST experiments can be run with
+Adversarial MNIST experiments can be run with:
 ```
     python run_adv_experiments.py --adversarial --use-cuda
 ```
-CIFAR-10 GAN experiments can be run with
+CIFAR-10 GAN experiments can be run with:
 ```
     python run_experiments.py --gan --use-cuda
 ```
@@ -31,7 +31,7 @@ CIFAR-10 GAN experiments can be run with
 We also provide job scripts for running the experiments on SLURM, which can be easily adjusted for your compute cluster. There are also other scripts for running other experiments, but they can be safely ignored.
 
 ### Evaluating GAN experiments
-Instead of sharing all model checkpoints, we provide code for sampling from the trained GAN model, which can be run with
+Instead of sharing all model checkpoints, we provide code for sampling from the trained GAN model, which can be run with:
 ```
     sh gan_fid.sh <epochs>
 ```
